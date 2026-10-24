@@ -1,0 +1,86 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.0.7'
+	id 'io.spring.dependency-management' version '1.1.7'
+	id 'org.hibernate.orm' version '7.2.19.Final'
+	
+}
+
+group = 'com.erplancers'
+version = '0.0.1-SNAPSHOT'
+
+
+
+repositories {
+	mavenCentral()
+}
+
+// Keep Spring Boot's Logback logging backend as the sole SLF4J provider.
+// Spark's log4j-slf4j2-impl conflicts with Boot's log4j-to-slf4j bridge.
+
+
+
+dependencies {
+	// Analytics is compiled and packaged directly as part of the ERP backend.
+
+	// Source: https://mvnrepository.com/artifact/org.webjars/bootstrap
+	implementation 'org.webjars:bootstrap:5.3.8'
+	implementation 'org.springframework.kafka:spring-kafka'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-batch'
+	implementation 'org.springframework.boot:spring-boot-starter-batch-jdbc'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation group: 'com.google.code.gson', name: 'gson', version: '2.14.0'
+	implementation 'org.springframework.boot:spring-boot-starter-quartz'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+	implementation 'org.springframework.boot:spring-boot-starter-mail'
+	implementation 'org.apache.camel.springboot:camel-spring-boot-starter:4.20.0'
+	implementation 'org.jobrunr:jobrunr-spring-boot-4-starter:8.7.0'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2'
+	implementation 'org.springframework.boot:spring-boot-starter-session-jdbc'
+	implementation 'org.flywaydb:flyway-core'
+	runtimeOnly 'org.flywaydb:flyway-database-postgresql'
+	compileOnly 'org.projectlombok:lombok'
+	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+	implementation 'org.springframework.boot:spring-boot-starter-hateoas'
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+	runtimeOnly 'org.apache.derby:derby'
+	runtimeOnly 'org.apache.derby:derbytools'
+	runtimeOnly 'org.postgresql:postgresql'
+	annotationProcessor 'org.projectlombok:lombok'
+	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+	testImplementation 'org.springframework.boot:spring-boot-starter-actuator-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-batch-jdbc-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-batch-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-quartz-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-websocket-test'
+	testImplementation 'org.springframework.security:spring-security-test'
+
+	runtimeOnly 'com.h2database:h2'
+	testCompileOnly 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+
+hibernate {
+	enhancement {
+	}
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+	testLogging {
+		events "failed"
+		exceptionFormat "full"
+		showStandardStreams = true
+	}
+}

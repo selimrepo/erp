@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: erplancers
+      POSTGRES_USER: erplancers
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erplancers -d erplancers"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [erp]
+
+
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/erplancers
+      SPRING_DATASOURCE_USERNAME: erplancers
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_SESSION_JDBC_INITIALIZE_SCHEMA: always
+      ERP_REGISTRATION_ADMIN_TOKEN: ${ERP_REGISTRATION_ADMIN_TOKEN:?Set ERP_REGISTRATION_ADMIN_TOKEN in .env}
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks: [erp]
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    ports:
+      - "${ERP_HTTP_PORT:-8088}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [erp]
+
+volumes:
+  postgres_data:
+
+
+networks:
+  erp:
+    driver: bridge
