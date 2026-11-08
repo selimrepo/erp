@@ -15,6 +15,12 @@ public class ErpWorkflowController {
     private final ErpWorkflowService workflows;
     private final PolicyAuthorizationService authorization;
 
+    @PostMapping("/sales/quotes/{id}/convert")
+    public Map<String,Object> convertQuote(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.QuoteConversion request) {
+        require(auth,"quote","WRITE"); require(auth,"order","WRITE"); require(auth,"product-stock-location","WRITE"); require(auth,"stock-movement","WRITE");
+        if(request.createInvoice()) require(auth,"invoice","WRITE");
+        return workflows.convertQuoteToOrder(id,request);
+    }
     @PostMapping("/sales/orders")
     public Map<String,Object> createSalesOrder(Authentication auth,@Valid @RequestBody ErpWorkflowRequests.SalesOrder request) {
         require(auth,"order","WRITE"); require(auth,"product-stock-location","WRITE");
