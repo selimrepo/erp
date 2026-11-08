@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
+@EntityListeners(OrderLineLifecycleListener.class)
 @Table(name = "erp_order_line")
 @Getter @Setter @NoArgsConstructor
 public class OrderLine extends EntityBase {
