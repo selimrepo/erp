@@ -31,4 +31,6 @@ public class Purchase extends EntityBase {
     @OneToMany(mappedBy = "purchase", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<PurchaseDetail> purchaseDetails = new LinkedHashSet<>();
     @Transient private boolean receiptValidated;
+    @Transient private boolean purchaseCreationValidated;
+    @Transient private boolean movementValidated;
 }
