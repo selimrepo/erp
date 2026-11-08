@@ -24,4 +24,6 @@ public class BankStatementLine extends EntityBase {
     @Column(nullable=false, length=24) private String reconciliationStatus = "UNMATCHED";
     @ManyToOne(fetch=FetchType.LAZY) private PaymentTransaction matchedPayment;
     private LocalDateTime reconciledAt;
+    @Transient private boolean reconciliationValidated;
+    @Transient private Long persistedMatchedPaymentId;
 }
