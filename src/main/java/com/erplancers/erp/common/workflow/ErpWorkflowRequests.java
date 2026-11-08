@@ -21,6 +21,9 @@ public final class ErpWorkflowRequests {
     public record OrderTransition(@NotBlank String idempotencyKey) {}
     public record QuoteConversion(@NotBlank String idempotencyKey, @NotNull Long storeId, boolean createInvoice, String comment) {}
     public record CreditNote(@NotBlank String idempotencyKey, @NotNull @Positive Long amount, @NotBlank String reason) {}
+    public record BankStatementLineInput(@NotBlank String externalLineId, @NotNull LocalDate transactionDate, @NotNull Long amount, String reference, String description) {}
+    public record BankStatementImport(@NotBlank String idempotencyKey, @NotBlank String statementReference, @NotNull Long currencyId,
+            @NotNull LocalDate periodStart, @NotNull LocalDate periodEnd, @NotEmpty List<@Valid BankStatementLineInput> lines) {}
     public record InvoicePayment(@NotBlank String idempotencyKey, @NotNull @Positive Long amount,
                                  @NotNull Long contactId, @NotNull Long currencyId,
                                  @NotNull String direction, String reference, String description) {}
