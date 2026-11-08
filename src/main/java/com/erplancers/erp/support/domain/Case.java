@@ -27,4 +27,5 @@ public class Case extends EntityBase {
     String resolution;
     String state;
     String workLog;
+    @Transient private boolean transitionValidated;
 }
