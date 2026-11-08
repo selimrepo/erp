@@ -39,6 +39,11 @@ public class BankStatementLineLifecycleListener {
         line.setReconciliationValidated(false);
     }
 
+    @jakarta.persistence.PreRemove
+    public void preventDelete(BankStatementLine line) {
+        throw new IllegalStateException("Imported bank statement lines cannot be deleted");
+    }
+
     private String fingerprint(BankStatementLine line) {
         return String.join("|", String.valueOf(line.getMatchedPayment() == null ? null : line.getMatchedPayment().getId()),
                 String.valueOf(line.getReconciliationStatus()), String.valueOf(line.getReconciledAt()));
