@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.util.Set;
 
 @Entity
+@EntityListeners(QuoteLifecycleListener.class)
 @NoArgsConstructor
 @Getter
 @Setter
