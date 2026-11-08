@@ -12,13 +12,20 @@ version = '0.0.1-SNAPSHOT'
 
 
 repositories {
+	// Resolve SnakeYAML from its Maven POM, not the Gradle module metadata that
+	// points this JVM application at the unavailable Android-classified JAR.
+	maven {
+		name = 'MavenCentralSnakeYamlJvm'
+		url = uri('https://repo.maven.apache.org/maven2')
+		content {
+			includeGroup 'org.yaml'
+		}
+		metadataSources {
+			mavenPom()
+			artifact()
+		}
+	}
 	mavenCentral()
-}
-
-// SnakeYAML 2.5 Gradle module metadata currently resolves the Android-classified
-// artifact on this JVM build. Pin the standard, platform-neutral JVM release.
-configurations.configureEach {
-	resolutionStrategy.force 'org.yaml:snakeyaml:2.4'
 }
 
 // Keep Spring Boot's Logback logging backend as the sole SLF4J provider.
