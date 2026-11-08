@@ -21,6 +21,16 @@ public class ErpWorkflowController {
         if(request.createInvoice()) require(auth,"invoice","WRITE");
         return workflows.createSalesOrder(request);
     }
+    @PostMapping("/sales/orders/{id}/ship")
+    public Map<String,Object> shipSalesOrder(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.OrderTransition request) {
+        require(auth,"order","WRITE"); require(auth,"stock-movement","WRITE");
+        return workflows.transitionSalesOrder(id,request,true);
+    }
+    @PostMapping("/sales/orders/{id}/cancel")
+    public Map<String,Object> cancelSalesOrder(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.OrderTransition request) {
+        require(auth,"order","WRITE"); require(auth,"product-stock-location","WRITE"); require(auth,"stock-movement","WRITE");
+        return workflows.transitionSalesOrder(id,request,false);
+    }
     @PostMapping("/procurement/purchases")
     public Map<String,Object> createPurchase(Authentication auth,@Valid @RequestBody ErpWorkflowRequests.PurchaseOrder request) {
         require(auth,"purchase","WRITE"); require(auth,"purchase-detail","WRITE");
