@@ -712,8 +712,9 @@ public class ErpWorkflowService {
         com.erplancers.erp.tax.domain.TaxRate rate = null;
         if (taxRateId != null) {
             rate = required(com.erplancers.erp.tax.domain.TaxRate.class, taxRateId);
+            Long selectedTaxRateId = rate.getId();
             if (product.getTaxClass() != null && (product.getTaxClass().getTaxRates() == null
-                    || product.getTaxClass().getTaxRates().stream().noneMatch(candidate -> Objects.equals(candidate.getId(), rate.getId()))))
+                    || product.getTaxClass().getTaxRates().stream().noneMatch(candidate -> Objects.equals(candidate.getId(), selectedTaxRateId))))
                 throw new IllegalArgumentException("Selected tax rate does not belong to the product tax class");
         } else if (product.getTaxClass() != null) {
             Set<com.erplancers.erp.tax.domain.TaxRate> candidates = product.getTaxClass().getTaxRates();
