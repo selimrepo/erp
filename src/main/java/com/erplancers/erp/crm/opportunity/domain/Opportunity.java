@@ -25,6 +25,7 @@ import java.util.Set;
 
 public class Opportunity extends EntityBase {
     String name;
+    @Column(length = 24, nullable = false) private String status = "NEW";
     LocalDate date;
     @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
     Set<Campaign> campaigns;
