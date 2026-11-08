@@ -27,5 +27,6 @@ public class Invoice extends EntityBase {
     @Column(name = "workflow_key", length = 180) private String workflowKey;
     @Enumerated(EnumType.STRING) private InvoiceStatus invoiceStatus;
     @Enumerated(EnumType.STRING) private InvoiceType invoiceType;
+    @Transient private String persistedAmountFingerprint;
     @Transient private boolean settlementValidated;
 }
