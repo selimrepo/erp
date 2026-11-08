@@ -94,9 +94,11 @@ public class ErpWorkflowService {
     public Map<String,Object> convertQuoteToOrder(Long quoteId, ErpWorkflowRequests.QuoteConversion request) {
         Quote quote = em.find(Quote.class, quoteId, LockModeType.PESSIMISTIC_WRITE);
         if (quote == null) throw new IllegalArgumentException("Quote not found: " + quoteId);
+        String conversionHash = hash(quoteId + "|" + request.toString());
         if ("CONVERTED".equals(quote.getStatus())) {
-            if (!Objects.equals(quote.getConversionIdempotencyKey(), request.idempotencyKey()))
-                throw new IllegalStateException("Quote has already been converted");
+            if (!Objects.equals(quote.getConversionIdempotencyKey(), request.idempotencyKey())
+                    || !Objects.equals(quote.getConversionPayloadHash(), conversionHash))
+                throw new IllegalStateException("Quote has already been converted with a different conversion request");
             return result("quote", quoteId, "order", quote.getConvertedOrder().getId(), "status", "CONVERTED", "idempotentReplay", true);
         }
         if (!"ACCEPTED".equals(quote.getStatus())) throw new IllegalStateException("Only accepted quotes can be converted");
@@ -118,6 +120,7 @@ public class ErpWorkflowService {
         Order order = required(Order.class, ((Number) created.get("order")).longValue());
         quote.setConvertedOrder(order);
         quote.setConversionIdempotencyKey(request.idempotencyKey());
+        quote.setConversionPayloadHash(conversionHash);
         quote.setStatus("CONVERTED");
         em.flush();
         return result("quote", quoteId, "order", order.getId(), "invoiceId", created.get("invoiceId"),
