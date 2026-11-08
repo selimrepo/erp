@@ -9,6 +9,12 @@ import java.util.Objects;
 
 /** Keeps posted journal headers immutable while allowing DRAFT -> POSTED. */
 public class JournalEntryLifecycleListener {
+    @jakarta.persistence.PrePersist
+    public void validateInsert(JournalEntry entry) {
+        if (entry.getStatus() != JournalEntryStatus.DRAFT)
+            throw new IllegalStateException("Journal entries must be created as DRAFT and posted through the accounting workflow");
+    }
+
     @PostLoad
     @PostPersist
     public void capture(JournalEntry entry) {
@@ -17,6 +23,9 @@ public class JournalEntryLifecycleListener {
 
     @PreUpdate
     public void validateUpdate(JournalEntry entry) {
+        if (JournalEntryStatus.DRAFT.name().equals(entry.getPersistedWorkflowState())
+                && entry.getStatus() == JournalEntryStatus.POSTED && !entry.isPostingValidated())
+            throw new IllegalStateException("Journal posting must go through the balanced journal command");
         if (JournalEntryStatus.POSTED.name().equals(entry.getPersistedWorkflowState())
                 && !Objects.equals(entry.getPersistedPostingFingerprint(), fingerprint(entry))) {
             throw new IllegalStateException("Posted journal headers are immutable; create a reversal instead");
@@ -26,6 +35,7 @@ public class JournalEntryLifecycleListener {
     @PostUpdate
     public void captureAfterUpdate(JournalEntry entry) {
         entry.setPersistedPostingFingerprint(fingerprint(entry));
+        entry.setPostingValidated(false);
     }
 
     @PreRemove
@@ -42,6 +52,7 @@ public class JournalEntryLifecycleListener {
                 String.valueOf(entry.getCompany() == null ? null : entry.getCompany().getId()),
                 String.valueOf(entry.getFiscalYear() == null ? null : entry.getFiscalYear().getId()),
                 String.valueOf(entry.getFiscalPeriod() == null ? null : entry.getFiscalPeriod().getId()),
-                String.valueOf(entry.getEntryType()));
+                String.valueOf(entry.getEntryType()),
+                String.valueOf(entry.getIdempotencyKey()), String.valueOf(entry.getIdempotencyPayloadHash()));
     }
 }
