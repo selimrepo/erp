@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
-@Entity @NoArgsConstructor @Getter @Setter
+@Entity @EntityListeners(PurchaseLifecycleListener.class) @NoArgsConstructor @Getter @Setter
 @Table(uniqueConstraints = @UniqueConstraint(name = "uk_purchase_idempotency", columnNames = "idempotency_key"))
 public class Purchase extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY, optional = false) private Supplier supplier;
