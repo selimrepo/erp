@@ -255,7 +255,11 @@ public class ErpWorkflowService {
     public Map<String,Object> transitionQuote(Long id, ErpWorkflowRequests.WorkflowTransition request) {
         Quote entity = em.find(Quote.class, id, LockModeType.PESSIMISTIC_WRITE);
         if (entity == null) throw new IllegalArgumentException("Quote not found: " + id);
-        entity.setStatus(request.status().trim().toUpperCase(Locale.ROOT)); em.flush();
+        String next = request.status().trim().toUpperCase(Locale.ROOT);
+        if ("CONVERTED".equals(next)) throw new IllegalArgumentException("Use the quote conversion command to create an order");
+        if (Set.of("SENT", "ACCEPTED").contains(next) && (entity.getLines() == null || entity.getLines().isEmpty()))
+            throw new IllegalStateException("A quote needs at least one product line before it can be sent or accepted");
+        entity.setStatus(next); em.flush();
         return result("quote", id, "status", entity.getStatus());
     }
 
@@ -263,7 +267,11 @@ public class ErpWorkflowService {
     public Map<String,Object> transitionOpportunity(Long id, ErpWorkflowRequests.WorkflowTransition request) {
         Opportunity entity = em.find(Opportunity.class, id, LockModeType.PESSIMISTIC_WRITE);
         if (entity == null) throw new IllegalArgumentException("Opportunity not found: " + id);
-        entity.setStatus(request.status().trim().toUpperCase(Locale.ROOT)); em.flush();
+        String next = request.status().trim().toUpperCase(Locale.ROOT);
+        if ("WON".equals(next) && (entity.getLeads() == null || entity.getLeads().isEmpty())
+                && (entity.getProducts() == null || entity.getProducts().isEmpty()))
+            throw new IllegalStateException("A won opportunity must reference at least one qualified lead or product");
+        entity.setStatus(next); em.flush();
         return result("opportunity", id, "status", entity.getStatus());
     }
 
@@ -285,7 +293,11 @@ public class ErpWorkflowService {
     public Map<String,Object> transitionProject(Long id, ErpWorkflowRequests.WorkflowTransition request) {
         Project entity = em.find(Project.class, id, LockModeType.PESSIMISTIC_WRITE);
         if (entity == null) throw new IllegalArgumentException("Project not found: " + id);
-        entity.setStatus(request.status().trim().toUpperCase(Locale.ROOT)); em.flush();
+        String next = request.status().trim().toUpperCase(Locale.ROOT);
+        if ("COMPLETED".equals(next) && entity.getProjectTasks() != null
+                && entity.getProjectTasks().stream().anyMatch(task -> !Set.of("DONE", "CANCELLED").contains(task.getStatus())))
+            throw new IllegalStateException("A project cannot be completed while tasks remain open or blocked");
+        entity.setStatus(next); em.flush();
         return result("project", id, "status", entity.getStatus());
     }
 
@@ -293,7 +305,12 @@ public class ErpWorkflowService {
     public Map<String,Object> transitionProjectTask(Long id, ErpWorkflowRequests.WorkflowTransition request) {
         ProjectTask entity = em.find(ProjectTask.class, id, LockModeType.PESSIMISTIC_WRITE);
         if (entity == null) throw new IllegalArgumentException("Project task not found: " + id);
-        entity.setStatus(request.status().trim().toUpperCase(Locale.ROOT)); em.flush();
+        String next = request.status().trim().toUpperCase(Locale.ROOT);
+        List<Project> parents = em.createQuery("select p from Project p join p.projectTasks t where t.id=:taskId", Project.class)
+                .setParameter("taskId", id).setMaxResults(2).getResultList();
+        if (parents.stream().anyMatch(project -> !Set.of("ACTIVE").contains(project.getStatus())))
+            throw new IllegalStateException("Project tasks can only be progressed while their project is ACTIVE");
+        entity.setStatus(next); em.flush();
         return result("projectTask", id, "status", entity.getStatus());
     }
 
