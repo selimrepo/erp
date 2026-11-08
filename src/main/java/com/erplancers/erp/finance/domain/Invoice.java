@@ -22,6 +22,7 @@ public class Invoice extends EntityBase {
     private Long paidAmount = 0L;
     @Column(nullable = false) private Long creditedAmount = 0L;
     @ManyToOne(fetch = FetchType.LAZY) private Invoice originalInvoice;
+    @ManyToOne(fetch = FetchType.LAZY) private com.erplancers.erp.accounting.domain.JournalEntry ledgerJournalEntry;
     private String creditNoteReason;
     @Column(name = "workflow_key", length = 180) private String workflowKey;
     @Enumerated(EnumType.STRING) private InvoiceStatus invoiceStatus;
