@@ -59,6 +59,11 @@ public class ErpWorkflowController {
         require(auth,"invoice","WRITE"); require(auth,"payment-transaction","WRITE");
         return workflows.payInvoice(id,request);
     }
+    @PostMapping("/finance/invoices/{id}/credit-notes")
+    public Map<String,Object> createCreditNote(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.CreditNote request) {
+        require(auth,"invoice","WRITE");
+        return workflows.createCreditNote(id,request);
+    }
     @PostMapping("/finance/invoices/{id}/post")
     public Map<String,Object> postInvoiceToLedger(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.DocumentPosting request) {
         require(auth,"invoice","WRITE"); require(auth,"journal-entry","WRITE"); require(auth,"journal-entry-line","WRITE"); require(auth,"account","READ");
