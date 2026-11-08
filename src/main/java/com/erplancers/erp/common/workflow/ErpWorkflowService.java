@@ -12,6 +12,10 @@ import com.erplancers.erp.procurement.domain.*;
 import com.erplancers.erp.sales.order.domain.*;
 import com.erplancers.erp.sales.quote.domain.Quote;
 import com.erplancers.erp.sales.quote.domain.QuoteLine;
+import com.erplancers.erp.crm.opportunity.domain.Opportunity;
+import com.erplancers.erp.projects.domain.Project;
+import com.erplancers.erp.projects.domain.ProjectTask;
+import com.erplancers.erp.support.domain.Case;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.TypedQuery;
@@ -231,6 +235,52 @@ public class ErpWorkflowService {
         return result("purchase", purchaseId, "receipt", receipt.getId(), "receivedQuantity", receivedTotal,
                 "status", purchase.getStatus(), "invoiceId", purchase.getInvoice()==null?null:purchase.getInvoice().getId(),
                 "idempotentReplay", false);
+    }
+
+    @Transactional
+    public Map<String,Object> transitionQuote(Long id, ErpWorkflowRequests.WorkflowTransition request) {
+        Quote entity = em.find(Quote.class, id, LockModeType.PESSIMISTIC_WRITE);
+        if (entity == null) throw new IllegalArgumentException("Quote not found: " + id);
+        entity.setStatus(request.status().trim().toUpperCase(Locale.ROOT)); em.flush();
+        return result("quote", id, "status", entity.getStatus());
+    }
+
+    @Transactional
+    public Map<String,Object> transitionOpportunity(Long id, ErpWorkflowRequests.WorkflowTransition request) {
+        Opportunity entity = em.find(Opportunity.class, id, LockModeType.PESSIMISTIC_WRITE);
+        if (entity == null) throw new IllegalArgumentException("Opportunity not found: " + id);
+        entity.setStatus(request.status().trim().toUpperCase(Locale.ROOT)); em.flush();
+        return result("opportunity", id, "status", entity.getStatus());
+    }
+
+    @Transactional
+    public Map<String,Object> transitionCase(Long id, ErpWorkflowRequests.WorkflowTransition request) {
+        Case entity = em.find(Case.class, id, LockModeType.PESSIMISTIC_WRITE);
+        if (entity == null) throw new IllegalArgumentException("Case not found: " + id);
+        String next = request.status().trim().toUpperCase(Locale.ROOT);
+        if ("RESOLVED".equals(next)) {
+            if (request.resolution() == null || request.resolution().isBlank())
+                throw new IllegalArgumentException("Resolution text is required before resolving a support case");
+            entity.setResolution(request.resolution().trim());
+        }
+        entity.setStatus(next); em.flush();
+        return result("case", id, "status", entity.getStatus());
+    }
+
+    @Transactional
+    public Map<String,Object> transitionProject(Long id, ErpWorkflowRequests.WorkflowTransition request) {
+        Project entity = em.find(Project.class, id, LockModeType.PESSIMISTIC_WRITE);
+        if (entity == null) throw new IllegalArgumentException("Project not found: " + id);
+        entity.setStatus(request.status().trim().toUpperCase(Locale.ROOT)); em.flush();
+        return result("project", id, "status", entity.getStatus());
+    }
+
+    @Transactional
+    public Map<String,Object> transitionProjectTask(Long id, ErpWorkflowRequests.WorkflowTransition request) {
+        ProjectTask entity = em.find(ProjectTask.class, id, LockModeType.PESSIMISTIC_WRITE);
+        if (entity == null) throw new IllegalArgumentException("Project task not found: " + id);
+        entity.setStatus(request.status().trim().toUpperCase(Locale.ROOT)); em.flush();
+        return result("projectTask", id, "status", entity.getStatus());
     }
 
     @Transactional
