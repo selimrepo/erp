@@ -20,6 +20,8 @@ public class PaymentTransactionLifecycleListener {
     @PrePersist @PreUpdate
     public void validate(PaymentTransaction payment) {
         if ("COMPLETED".equalsIgnoreCase(payment.getStatus())) {
+            if (payment.getPersistedPaymentStatus() == null && !payment.isSettlementValidated())
+                throw new IllegalStateException("Completed payments can only be created by the invoice settlement workflow");
             if (payment.getInvoice() == null || payment.getCurrency() == null
                     || payment.getPaymentTransactionDirection() == null || payment.getPaymentDate() == null
                     || payment.getAmount() == null || payment.getAmount() <= 0)
@@ -48,6 +50,7 @@ public class PaymentTransactionLifecycleListener {
         payment.setPersistedPaymentStatus(payment.getStatus());
         payment.setPersistedLedgerJournalEntryId(payment.getLedgerJournalEntry() == null ? null : payment.getLedgerJournalEntry().getId());
         payment.setLedgerPostingValidated(false);
+        payment.setSettlementValidated(false);
     }
 
     @PreRemove
