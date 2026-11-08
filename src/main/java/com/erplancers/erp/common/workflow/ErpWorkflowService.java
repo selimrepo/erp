@@ -137,12 +137,46 @@ public class ErpWorkflowService {
     }
 
     @Transactional
+    public Map<String,Object> transitionSalesOrder(Long orderId, ErpWorkflowRequests.OrderTransition request, boolean ship) {
+        Order order = em.find(Order.class, orderId, LockModeType.PESSIMISTIC_WRITE);
+        if (order == null) throw new IllegalArgumentException("Order not found: " + orderId);
+        if (ship && order.getOrderStatus() == OrderStatus.SHIPPED)
+            return result("order", orderId, "status", "SHIPPED", "idempotentReplay", true);
+        if (!ship && order.getOrderStatus() == OrderStatus.CANCELLED)
+            return result("order", orderId, "status", "CANCELLED", "idempotentReplay", true);
+        if (order.getOrderStatus() != OrderStatus.PROCESSING)
+            throw new IllegalStateException("Only PROCESSING orders can be shipped or cancelled");
+        List<StockMovement> reservations = em.createQuery(
+                "select m from StockMovement m where m.referenceType='ORDER' and m.referenceId=:id and m.movementType='SALE_RESERVATION'",
+                StockMovement.class).setParameter("id", orderId.toString())
+                .setLockMode(ship ? LockModeType.NONE : LockModeType.PESSIMISTIC_WRITE).getResultList();
+        int index = 0;
+        for (StockMovement reservation : reservations) {
+            if (ship) {
+                movement(reservation.getProduct(), reservation.getStore(), reservation.getQuantity(),
+                        "SALE_SHIPMENT", "ORDER", orderId.toString(), request.idempotencyKey()+":ship:"+(index++));
+            } else {
+                ProductStockLocation stock = stockForUpdateOrCreate(reservation.getProduct(), reservation.getStore());
+                long quantity = stock.getQuantity() == null ? 0 : stock.getQuantity();
+                stock.setQuantity(Math.addExact(quantity, reservation.getQuantity()));
+                movement(reservation.getProduct(), reservation.getStore(), reservation.getQuantity(),
+                        "SALE_RESERVATION_RELEASE", "ORDER", orderId.toString(), request.idempotencyKey()+":cancel:"+(index++));
+            }
+        }
+        order.setOrderStatus(ship ? OrderStatus.SHIPPED : OrderStatus.CANCELLED);
+        em.flush();
+        return result("order", orderId, "status", order.getOrderStatus().name(), "idempotentReplay", false);
+    }
+
+    @Transactional
     public Map<String,Object> payInvoice(Long invoiceId, ErpWorkflowRequests.InvoicePayment request) {
         List<PaymentTransaction> existing = em.createQuery("select p from PaymentTransaction p where p.idempotencyKey=:key", PaymentTransaction.class)
                 .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
         if (!existing.isEmpty()) {
             if (existing.get(0).getInvoice()==null || !Objects.equals(existing.get(0).getInvoice().getId(), invoiceId))
                 throw new IllegalArgumentException("Idempotency key was already used for a different invoice payment");
+            if (!Objects.equals(existing.get(0).getAmount(), request.amount()))
+                throw new IllegalArgumentException("Idempotency key was already used with a different payment amount");
             return result("payment", existing.get(0).getId(), "idempotentReplay", true);
         }
         Invoice invoice = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
@@ -154,6 +188,8 @@ public class ErpWorkflowService {
         long outstanding = amount-paid;
         if (request.amount()>outstanding) throw new IllegalArgumentException("Payment exceeds outstanding invoice balance " + outstanding);
         Currency currency=required(Currency.class,request.currencyId());
+        if (invoice.getCurrency() == null || !Objects.equals(invoice.getCurrency().getId(), currency.getId()))
+            throw new IllegalArgumentException("Payment currency must match the invoice currency");
         Contact contact=required(Contact.class,request.contactId());
         PaymentTransactionDirection direction=PaymentTransactionDirection.valueOf(request.direction().toUpperCase(Locale.ROOT));
         if ((invoice.getInvoiceType()==InvoiceType.SALE && direction!=PaymentTransactionDirection.SALES)
@@ -174,7 +210,14 @@ public class ErpWorkflowService {
     public Map<String,Object> postJournal(ErpWorkflowRequests.JournalPost request) {
         List<JournalEntry> existing=em.createQuery("select j from JournalEntry j where j.idempotencyKey=:key",JournalEntry.class)
                 .setParameter("key",request.idempotencyKey()).setMaxResults(1).getResultList();
-        if(!existing.isEmpty()) return result("journalEntry",existing.get(0).getId(),"idempotentReplay",true);
+        if(!existing.isEmpty()) {
+            JournalEntry prior = existing.get(0);
+            if (!Objects.equals(prior.getEntryId(), request.entryId())
+                    || !Objects.equals(prior.getFiscalYear().getId(), request.fiscalYearId())
+                    || !Objects.equals(prior.getFiscalPeriod().getId(), request.fiscalPeriodId()))
+                throw new IllegalArgumentException("Idempotency key was already used for a different journal");
+            return result("journalEntry",prior.getId(),"idempotentReplay",true);
+        }
         FiscalYear year=required(FiscalYear.class,request.fiscalYearId());
         FiscalPeriod period=required(FiscalPeriod.class,request.fiscalPeriodId());
         if (year.isClosed() || period.isClosed()) throw new IllegalStateException("Cannot post into a closed fiscal year or period");
