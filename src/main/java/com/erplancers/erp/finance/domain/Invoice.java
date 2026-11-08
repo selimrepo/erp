@@ -32,4 +32,5 @@ public class Invoice extends EntityBase {
     @Transient private Long persistedLedgerJournalEntryId;
     @Transient private boolean ledgerPostingValidated;
     @Transient private boolean settlementValidated;
+    @Transient private boolean creationValidated;
 }
