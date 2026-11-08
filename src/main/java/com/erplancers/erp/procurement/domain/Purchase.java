@@ -26,6 +26,7 @@ public class Purchase extends EntityBase {
     @Column(nullable = false) private Long taxAmount = 0L;
     @Column(length = 24) private String status;
     @Column(name = "idempotency_key", length = 180) private String idempotencyKey;
+    @Column(name = "idempotency_payload_hash", length = 64) private String idempotencyPayloadHash;
     @Column(name = "receipt_idempotency_key", length = 180) private String receiptIdempotencyKey;
     @OneToMany(mappedBy = "purchase", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<PurchaseDetail> purchaseDetails = new LinkedHashSet<>();
