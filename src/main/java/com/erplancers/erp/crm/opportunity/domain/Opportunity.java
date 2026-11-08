@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.util.Set;
 
 @Entity
+@EntityListeners(OpportunityLifecycleListener.class)
 @NoArgsConstructor
 @Getter
 @Setter
