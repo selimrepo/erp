@@ -47,6 +47,16 @@ public class ErpWorkflowController {
         require(auth,"invoice","WRITE"); require(auth,"payment-transaction","WRITE");
         return workflows.payInvoice(id,request);
     }
+    @PostMapping("/finance/invoices/{id}/post")
+    public Map<String,Object> postInvoiceToLedger(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.DocumentPosting request) {
+        require(auth,"invoice","WRITE"); require(auth,"journal-entry","WRITE"); require(auth,"journal-entry-line","WRITE"); require(auth,"account","READ");
+        return workflows.postInvoiceToLedger(id,request);
+    }
+    @PostMapping("/finance/payments/{id}/post")
+    public Map<String,Object> postPaymentToLedger(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.DocumentPosting request) {
+        require(auth,"payment-transaction","WRITE"); require(auth,"journal-entry","WRITE"); require(auth,"journal-entry-line","WRITE"); require(auth,"account","READ");
+        return workflows.postPaymentToLedger(id,request);
+    }
     @PostMapping("/accounting/journals")
     public Map<String,Object> postJournal(Authentication auth,@Valid @RequestBody ErpWorkflowRequests.JournalPost request) {
         require(auth,"journal-entry","WRITE"); require(auth,"journal-entry-line","WRITE"); require(auth,"account","READ");
