@@ -20,4 +20,6 @@ public class PurchaseDetail extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY) private TaxRate taxRate;
     @Column(nullable = false) private Long taxAmount = 0L;
     @Column(nullable = false) private Long lineTotal = 0L;
+    @Transient private boolean receiptValidated;
+    @Transient private Long persistedReceivedQuantity;
 }
