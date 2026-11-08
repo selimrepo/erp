@@ -22,6 +22,11 @@ export async function apiFetch<T>(path:string, credentials:Credentials, init:Req
   if(response.status===204)return undefined as T; return response.json() as Promise<T>;
 }
 export const api={
+ createSalesOrder:(body:object,c:Credentials)=>apiFetch<any>("/workflows/sales/orders",c,{method:"POST",body:JSON.stringify(body)}),
+ createPurchaseOrder:(body:object,c:Credentials)=>apiFetch<any>("/workflows/procurement/purchases",c,{method:"POST",body:JSON.stringify(body)}),
+ receivePurchase:(id:number,storeId:number,idempotencyKey:string,c:Credentials)=>apiFetch<any>(`/workflows/procurement/purchases/${id}/receive?storeId=${storeId}`,c,{method:"POST",body:JSON.stringify({idempotencyKey})}),
+ payInvoice:(id:number,body:object,c:Credentials)=>apiFetch<any>(`/workflows/finance/invoices/${id}/payments`,c,{method:"POST",body:JSON.stringify(body)}),
+ postJournal:(body:object,c:Credentials)=>apiFetch<any>("/workflows/accounting/journals",c,{method:"POST",body:JSON.stringify(body)}),
  resources:(c:Credentials)=>apiFetch<ResourceInfo[]>("/resources",c),
  registerAdmin:(body:{username:string;password:string;adminToken:string})=>fetch(API_BASE+"/auth/register-admin",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify(body)}).then(async r=>{if(!r.ok)throw new Error((await r.text())||`Admin registration failed: ${r.status}`);return r.json();}),
  register:(body:{username:string;password:string})=>fetch(API_BASE+"/auth/register",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify(body)}).then(async r=>{if(!r.ok)throw new Error((await r.text())||`Registration failed: ${r.status}`);return r.json();}),
