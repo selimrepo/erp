@@ -18,6 +18,7 @@ import lombok.*;
 import java.util.Set;
 
 @Entity
+@EntityListeners(ProjectLifecycleListener.class)
 @NoArgsConstructor
 @Getter
 @Setter
