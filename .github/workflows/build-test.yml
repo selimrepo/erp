@@ -42,11 +42,8 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Inspect annotation processor dependencies
-        run: ./gradlew dependencies --configuration annotationProcessor --no-daemon
-
       - name: Compile
-        run: ./gradlew compileJava --no-daemon --info
+        run: ./gradlew compileJava --no-daemon
 
       - name: Test
         run: ./gradlew test --no-daemon
