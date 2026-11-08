@@ -863,6 +863,11 @@ public class ErpWorkflowService {
             if (product.getTaxClass() != null && (product.getTaxClass().getTaxRates() == null
                     || product.getTaxClass().getTaxRates().stream().noneMatch(candidate -> Objects.equals(candidate.getId(), selectedTaxRateId))))
                 throw new IllegalArgumentException("Selected tax rate does not belong to the product tax class");
+            Long customerGroupId = customer == null || customer.getCustomerGroup() == null ? null : customer.getCustomerGroup().getId();
+            if (rate.getCustomerGroups() != null && !rate.getCustomerGroups().isEmpty()
+                    && (customerGroupId == null || rate.getCustomerGroups().stream()
+                    .noneMatch(group -> Objects.equals(group.getId(), customerGroupId))))
+                throw new IllegalArgumentException("Selected tax rate does not apply to the customer's group");
         } else if (product.getTaxClass() != null) {
             Set<com.erplancers.erp.tax.domain.TaxRate> candidates = product.getTaxClass().getTaxRates();
             if (candidates == null || candidates.isEmpty())
