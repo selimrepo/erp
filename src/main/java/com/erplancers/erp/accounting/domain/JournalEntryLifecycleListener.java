@@ -11,7 +11,8 @@ import java.util.Objects;
 public class JournalEntryLifecycleListener {
     @jakarta.persistence.PrePersist
     public void validateInsert(JournalEntry entry) {
-        if (entry.getStatus() != JournalEntryStatus.DRAFT)
+        if (entry.getStatus() != JournalEntryStatus.DRAFT || entry.getIdempotencyKey() == null
+                || entry.getIdempotencyPayloadHash() == null || !entry.getIdempotencyPayloadHash().matches("[0-9a-f]{64}"))
             throw new IllegalStateException("Journal entries must be created as DRAFT and posted through the accounting workflow");
     }
 
