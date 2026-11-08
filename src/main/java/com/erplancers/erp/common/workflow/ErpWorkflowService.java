@@ -54,11 +54,13 @@ public class ErpWorkflowService {
             ProductStockLocation stock = stockForUpdate(product.getId(), store.getId());
             long available = stock.getQuantity() == null ? 0 : stock.getQuantity();
             if (available < input.quantity()) throw new IllegalStateException("Insufficient stock for product " + product.getId() + ": available " + available);
-            long lineTotal = Math.multiplyExact(input.quantity(), input.unitPrice());
+            long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
+            TaxCalculation tax = calculateTax(netAmount, input.taxRateId());
+            long lineTotal = Math.addExact(netAmount, tax.amount());
             total = Math.addExact(total, lineTotal);
             stock.setQuantity(available - input.quantity());
             OrderLine line = new OrderLine(); line.setOrder(order); line.setProduct(product);
-            line.setQuantity(input.quantity()); line.setUnitPrice(input.unitPrice()); line.setLineTotal(lineTotal);
+            line.setQuantity(input.quantity()); line.setUnitPrice(input.unitPrice()); line.setTaxRate(tax.rate()); line.setTaxAmount(tax.amount()); line.setLineTotal(lineTotal);
             order.getLines().add(line);
             movement(product, store, input.quantity(), "SALE_RESERVATION", "ORDER", order.getId().toString(), request.idempotencyKey()+":sale:"+i);
         }
@@ -95,7 +97,7 @@ public class ErpWorkflowService {
         if (customers.size() != 1) throw new IllegalStateException("Quote billing contact must resolve to exactly one customer");
         if (quote.getLines() == null || quote.getLines().isEmpty()) throw new IllegalStateException("Quote has no product lines");
         List<ErpWorkflowRequests.SalesLine> lines = quote.getLines().stream()
-                .map(line -> new ErpWorkflowRequests.SalesLine(line.getProduct().getId(), line.getQuantity(), line.getUnitPrice()))
+                .map(line -> new ErpWorkflowRequests.SalesLine(line.getProduct().getId(), line.getQuantity(), line.getUnitPrice(), line.getTaxRate()==null?null:line.getTaxRate().getId()))
                 .toList();
         ErpWorkflowRequests.SalesOrder orderRequest = new ErpWorkflowRequests.SalesOrder(
                 request.idempotencyKey(), customers.get(0).getId(), quote.getContactShipping().getId(),
@@ -128,9 +130,12 @@ public class ErpWorkflowService {
         long total=0;
         for (ErpWorkflowRequests.PurchaseLine input : request.lines()) {
             Product product = required(Product.class, input.productId());
-            long lineTotal = Math.multiplyExact(input.quantity(), input.unitPrice()); total=Math.addExact(total,lineTotal);
+            long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
+            TaxCalculation tax = calculateTax(netAmount, input.taxRateId());
+            long lineTotal = Math.addExact(netAmount, tax.amount()); total=Math.addExact(total,lineTotal);
             PurchaseDetail detail = new PurchaseDetail(); detail.setPurchase(purchase); detail.setSupplier(supplier);
             detail.setProduct(product); detail.setQuantity(input.quantity()); detail.setPrice(input.unitPrice());
+            detail.setTaxRate(tax.rate()); detail.setTaxAmount(tax.amount()); detail.setLineTotal(lineTotal);
             purchase.getPurchaseDetails().add(detail);
         }
         purchase.setTotalAmount(total); em.flush();
@@ -405,6 +410,18 @@ public class ErpWorkflowService {
         StockMovement m=new StockMovement(); m.setProduct(product); m.setStore(store); m.setQuantity(quantity);
         m.setMovementType(type); m.setReferenceType(refType); m.setReferenceId(refId); m.setIdempotencyKey(key); m.setOccurredAt(Instant.now()); em.persist(m);
     }
+    private TaxCalculation calculateTax(long netAmount, Long taxRateId) {
+        if (taxRateId == null) return new TaxCalculation(null, 0L);
+        com.erplancers.erp.tax.domain.TaxRate rate = required(com.erplancers.erp.tax.domain.TaxRate.class, taxRateId);
+        float percentage = rate.getRate();
+        if (!Float.isFinite(percentage) || percentage < 0f || percentage > 100f)
+            throw new IllegalStateException("Tax rate must be between 0 and 100 percent");
+        long tax = BigDecimal.valueOf(netAmount).multiply(BigDecimal.valueOf(percentage))
+                .divide(BigDecimal.valueOf(100), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+        return new TaxCalculation(rate, tax);
+    }
+    private record TaxCalculation(com.erplancers.erp.tax.domain.TaxRate rate, long amount) {}
+
     private <T> T required(Class<T> type, Long id) {
         T entity=em.find(type,id); if(entity==null) throw new IllegalArgumentException(type.getSimpleName()+" not found: "+id); return entity;
     }
