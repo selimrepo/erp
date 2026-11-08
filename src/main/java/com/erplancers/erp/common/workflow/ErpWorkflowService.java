@@ -433,7 +433,7 @@ public class ErpWorkflowService {
         }
         PaymentTransaction payment = em.find(PaymentTransaction.class, paymentId, LockModeType.PESSIMISTIC_WRITE);
         if (payment == null) throw new IllegalArgumentException("Payment not found: " + paymentId);
-        BankStatement statement = line.getStatement();
+        BankStatement statement = em.find(BankStatement.class, line.getStatement().getId(), LockModeType.PESSIMISTIC_WRITE);
         long expectedAmount = line.getAmount() > 0 ? line.getAmount() : Math.negateExact(line.getAmount());
         PaymentTransactionDirection expectedDirection = line.getAmount() > 0 ? PaymentTransactionDirection.SALES : PaymentTransactionDirection.PURCHASE;
         if (!Objects.equals(payment.getCurrency().getId(), statement.getCurrency().getId())
@@ -449,7 +449,7 @@ public class ErpWorkflowService {
         line.setMatchedPayment(payment); line.setReconciliationStatus("MATCHED"); line.setReconciledAt(java.time.LocalDateTime.now());
         long unmatched = em.createQuery("select count(l) from BankStatementLine l where l.statement.id=:id and l.matchedPayment is null", Long.class)
                 .setParameter("id", statement.getId()).getSingleResult();
-        statement.setStatus(unmatched <= 1 ? "RECONCILED" : "PARTIALLY_RECONCILED");
+        statement.setStatus(unmatched == 0 ? "RECONCILED" : "PARTIALLY_RECONCILED");
         em.flush();
         return result("line", lineId, "payment", paymentId, "statementStatus", statement.getStatus(), "idempotentReplay", false);
     }
