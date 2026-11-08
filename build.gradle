@@ -34,6 +34,7 @@ repositories {
 
 
 dependencies {
+	implementation 'com.github.javafaker:javafaker:1.0.2'
 	// Analytics is compiled and packaged directly as part of the ERP backend.
 
 	// Source: https://mvnrepository.com/artifact/org.webjars/bootstrap
@@ -56,14 +57,14 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-session-jdbc'
 	implementation 'org.flywaydb:flyway-core'
 	runtimeOnly 'org.flywaydb:flyway-database-postgresql'
-	compileOnly 'org.projectlombok:lombok'
+	compileOnly 'org.projectlombok:lombok:1.18.42'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	implementation 'org.springframework.boot:spring-boot-starter-hateoas'
 	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 	runtimeOnly 'org.apache.derby:derby'
 	runtimeOnly 'org.apache.derby:derbytools'
 	runtimeOnly 'org.postgresql:postgresql'
-	annotationProcessor 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok:1.18.42'
 	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 	testImplementation 'org.springframework.boot:spring-boot-starter-actuator-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-batch-jdbc-test'
@@ -78,9 +79,9 @@ dependencies {
 	testImplementation 'org.springframework.security:spring-security-test'
 
 	runtimeOnly 'com.h2database:h2'
-	testCompileOnly 'org.projectlombok:lombok'
+	testCompileOnly 'org.projectlombok:lombok:1.18.42'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-	testAnnotationProcessor 'org.projectlombok:lombok'
+	testAnnotationProcessor 'org.projectlombok:lombok:1.18.42'
 }
 
 
