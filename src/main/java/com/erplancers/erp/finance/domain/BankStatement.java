@@ -14,6 +14,7 @@ import java.util.Set;
 @Getter @Setter @NoArgsConstructor
 public class BankStatement extends EntityBase {
     @Column(nullable=false, length=180) private String idempotencyKey;
+    @Column(nullable=false, length=64) private String payloadHash;
     @Column(nullable=false, length=120) private String statementReference;
     @ManyToOne(fetch=FetchType.LAZY, optional=false) private Currency currency;
     @Column(nullable=false) private LocalDate periodStart;
