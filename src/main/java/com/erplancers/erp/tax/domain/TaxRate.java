@@ -30,7 +30,7 @@ public class TaxRate extends EntityBase {
     Zone zone;
     @ManyToOne(fetch = FetchType.LAZY)
     Location location;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<CustomerGroup> customerGroups;
 
 }
