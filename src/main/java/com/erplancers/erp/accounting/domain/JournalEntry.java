@@ -22,6 +22,7 @@ public class JournalEntry extends EntityBase {
     @Enumerated(EnumType.STRING) private JournalEntryType entryType;
     @Enumerated(EnumType.STRING) private JournalEntryStatus status;
     @Column(name = "idempotency_key", length = 180) private String idempotencyKey;
+    @Column(name = "idempotency_payload_hash", length = 64) private String idempotencyPayloadHash;
     @OneToMany(mappedBy = "journalEntry", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<JournalEntryLine> lines = new LinkedHashSet<>();
 }
