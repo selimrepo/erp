@@ -26,9 +26,9 @@ public class TaxRate extends EntityBase {
     
     String name;
     float rate;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     Zone zone;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     Location location;
     @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
     Set<CustomerGroup> customerGroups;
