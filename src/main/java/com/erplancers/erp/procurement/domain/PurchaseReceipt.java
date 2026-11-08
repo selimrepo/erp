@@ -15,6 +15,7 @@ import java.util.Set;
 public class PurchaseReceipt extends EntityBase {
     @ManyToOne(fetch=FetchType.LAZY, optional=false) private Purchase purchase;
     @Column(name="idempotency_key", nullable=false, length=180) private String idempotencyKey;
+    @Column(name="payload_hash", nullable=false, length=64) private String payloadHash;
     @Column(nullable=false) private LocalDateTime receivedAt;
     @OneToMany(mappedBy="receipt", cascade=CascadeType.ALL, orphanRemoval=true)
     private Set<PurchaseReceiptLine> lines = new LinkedHashSet<>();
