@@ -47,7 +47,7 @@ public class ErpWorkflowService {
         order.setComment(request.comment()); order.setOrderStatus(OrderStatus.PROCESSING);
         order.setIdempotencyKey(request.idempotencyKey()); order.setTotalAmount(0L);
         em.persist(order); em.flush();
-        long total = 0;
+        long total = 0, totalTax = 0;
         for (int i=0;i<request.lines().size();i++) {
             ErpWorkflowRequests.SalesLine input = request.lines().get(i);
             Product product = required(Product.class, input.productId());
@@ -58,6 +58,7 @@ public class ErpWorkflowService {
             TaxCalculation tax = calculateTax(netAmount, input.taxRateId());
             long lineTotal = Math.addExact(netAmount, tax.amount());
             total = Math.addExact(total, lineTotal);
+            totalTax = Math.addExact(totalTax, tax.amount());
             stock.setQuantity(available - input.quantity());
             OrderLine line = new OrderLine(); line.setOrder(order); line.setProduct(product);
             line.setQuantity(input.quantity()); line.setUnitPrice(input.unitPrice()); line.setTaxRate(tax.rate()); line.setTaxAmount(tax.amount()); line.setLineTotal(lineTotal);
@@ -69,6 +70,7 @@ public class ErpWorkflowService {
             Invoice invoice = new Invoice(); invoice.setInvoiceName("INV-S-" + order.getId());
             invoice.setInvoiceDescription("Sales order " + order.getId()); invoice.setAmount(total);
             invoice.setPaidAmount(0L); invoice.setCurrency(currency); invoice.setInvoiceType(InvoiceType.SALE);
+            invoice.setNetAmount(total - totalTax); invoice.setTaxAmount(totalTax);
             invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED); invoice.setWorkflowKey("sales:"+request.idempotencyKey());
             invoice.setBillingContacts(Set.of(contact)); invoice.setShippingContacts(Set.of(contact));
             em.persist(invoice); order.setInvoice(invoice);
@@ -127,18 +129,18 @@ public class ErpWorkflowService {
         Purchase purchase = new Purchase(); purchase.setSupplier(supplier); purchase.setStore(store); purchase.setCurrency(currency); purchase.setPurchaseDate(LocalDateTime.now());
         purchase.setStatus("ORDERED"); purchase.setIdempotencyKey(request.idempotencyKey()); purchase.setTotalAmount(0L);
         em.persist(purchase); em.flush();
-        long total=0;
+        long total=0, totalTax=0;
         for (ErpWorkflowRequests.PurchaseLine input : request.lines()) {
             Product product = required(Product.class, input.productId());
             long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
             TaxCalculation tax = calculateTax(netAmount, input.taxRateId());
-            long lineTotal = Math.addExact(netAmount, tax.amount()); total=Math.addExact(total,lineTotal);
+            long lineTotal = Math.addExact(netAmount, tax.amount()); total=Math.addExact(total,lineTotal); totalTax=Math.addExact(totalTax,tax.amount());
             PurchaseDetail detail = new PurchaseDetail(); detail.setPurchase(purchase); detail.setSupplier(supplier);
             detail.setProduct(product); detail.setQuantity(input.quantity()); detail.setPrice(input.unitPrice());
             detail.setTaxRate(tax.rate()); detail.setTaxAmount(tax.amount()); detail.setLineTotal(lineTotal);
             purchase.getPurchaseDetails().add(detail);
         }
-        purchase.setTotalAmount(total); em.flush();
+        purchase.setTotalAmount(total); purchase.setTaxAmount(totalTax); em.flush();
         return result("purchase", purchase.getId(), "totalAmount", total, "status", purchase.getStatus(), "idempotentReplay", false);
     }
 
@@ -218,6 +220,7 @@ public class ErpWorkflowService {
             Invoice invoice = new Invoice(); invoice.setInvoiceName("INV-P-" + purchaseId);
             invoice.setInvoiceDescription("Supplier invoice for purchase " + purchaseId);
             invoice.setAmount(purchase.getTotalAmount()); invoice.setPaidAmount(0L);
+            invoice.setTaxAmount(purchase.getTaxAmount()); invoice.setNetAmount(purchase.getTotalAmount()-purchase.getTaxAmount());
             invoice.setCurrency(purchase.getCurrency()); invoice.setInvoiceType(InvoiceType.PURCHASE);
             invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED); invoice.setWorkflowKey("purchase:" + purchase.getIdempotencyKey());
             if (purchase.getSupplier().getContact()!=null) invoice.setBillingContacts(Set.of(purchase.getSupplier().getContact()));
@@ -416,6 +419,11 @@ public class ErpWorkflowService {
         note.setInvoiceName("CN-" + original.getId() + "-" + UUID.randomUUID().toString().substring(0, 8));
         note.setInvoiceDescription("Credit note for invoice " + original.getInvoiceName());
         note.setAmount(request.amount()); note.setPaidAmount(0L); note.setCreditedAmount(0L);
+        long originalNet = original.getNetAmount()==null?amount:original.getNetAmount();
+        long originalTax = original.getTaxAmount()==null?0L:original.getTaxAmount();
+        long noteTax = amount == 0 ? 0L : BigDecimal.valueOf(request.amount()).multiply(BigDecimal.valueOf(originalTax))
+                .divide(BigDecimal.valueOf(amount), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+        note.setTaxAmount(noteTax); note.setNetAmount(request.amount()-noteTax);
         note.setCurrency(original.getCurrency()); note.setInvoiceType(InvoiceType.CREDIT_NOTE);
         note.setInvoiceStatus(InvoiceStatus.CONFIRMED); note.setOriginalInvoice(original);
         note.setCreditNoteReason(request.reason()); note.setWorkflowKey("credit-note:" + request.idempotencyKey());
