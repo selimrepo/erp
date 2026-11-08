@@ -59,7 +59,7 @@ public class ErpWorkflowService {
             long available = stock.getQuantity() == null ? 0 : stock.getQuantity();
             if (available < input.quantity()) throw new IllegalStateException("Insufficient stock for product " + product.getId() + ": available " + available);
             long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
-            TaxCalculation tax = calculateTax(netAmount, input.taxRateId());
+            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, customer);
             long lineTotal = Math.addExact(netAmount, tax.amount());
             total = Math.addExact(total, lineTotal);
             totalTax = Math.addExact(totalTax, tax.amount());
@@ -137,7 +137,7 @@ public class ErpWorkflowService {
         for (ErpWorkflowRequests.PurchaseLine input : request.lines()) {
             Product product = required(Product.class, input.productId());
             long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
-            TaxCalculation tax = calculateTax(netAmount, input.taxRateId());
+            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, null);
             long lineTotal = Math.addExact(netAmount, tax.amount()); total=Math.addExact(total,lineTotal); totalTax=Math.addExact(totalTax,tax.amount());
             PurchaseDetail detail = new PurchaseDetail(); detail.setPurchase(purchase); detail.setSupplier(supplier);
             detail.setProduct(product); detail.setQuantity(input.quantity()); detail.setPrice(input.unitPrice());
@@ -708,9 +708,31 @@ public class ErpWorkflowService {
         StockMovement m=new StockMovement(); m.setProduct(product); m.setStore(store); m.setQuantity(quantity);
         m.setMovementType(type); m.setReferenceType(refType); m.setReferenceId(refId); m.setIdempotencyKey(key); m.setOccurredAt(Instant.now()); em.persist(m);
     }
-    private TaxCalculation calculateTax(long netAmount, Long taxRateId) {
-        if (taxRateId == null) return new TaxCalculation(null, 0L);
-        com.erplancers.erp.tax.domain.TaxRate rate = required(com.erplancers.erp.tax.domain.TaxRate.class, taxRateId);
+    private TaxCalculation calculateTax(long netAmount, Long taxRateId, Product product, Customer customer) {
+        com.erplancers.erp.tax.domain.TaxRate rate = null;
+        if (taxRateId != null) {
+            rate = required(com.erplancers.erp.tax.domain.TaxRate.class, taxRateId);
+            if (product.getTaxClass() != null && (product.getTaxClass().getTaxRates() == null
+                    || product.getTaxClass().getTaxRates().stream().noneMatch(candidate -> Objects.equals(candidate.getId(), rate.getId()))))
+                throw new IllegalArgumentException("Selected tax rate does not belong to the product tax class");
+        } else if (product.getTaxClass() != null) {
+            Set<com.erplancers.erp.tax.domain.TaxRate> candidates = product.getTaxClass().getTaxRates();
+            if (candidates == null || candidates.isEmpty())
+                throw new IllegalStateException("Product tax class has no configured tax rates: " + product.getTaxClass().getId());
+            Long customerGroupId = customer == null || customer.getCustomerGroup() == null ? null : customer.getCustomerGroup().getId();
+            List<com.erplancers.erp.tax.domain.TaxRate> specific = candidates.stream()
+                    .filter(candidate -> candidate.getCustomerGroups() != null && customerGroupId != null
+                            && candidate.getCustomerGroups().stream().anyMatch(group -> Objects.equals(group.getId(), customerGroupId)))
+                    .toList();
+            List<com.erplancers.erp.tax.domain.TaxRate> defaults = candidates.stream()
+                    .filter(candidate -> candidate.getCustomerGroups() == null || candidate.getCustomerGroups().isEmpty())
+                    .toList();
+            List<com.erplancers.erp.tax.domain.TaxRate> selected = specific.isEmpty() ? defaults : specific;
+            if (selected.size() != 1)
+                throw new IllegalStateException("Tax class must resolve to exactly one applicable tax rate for product " + product.getId());
+            rate = selected.get(0);
+        }
+        if (rate == null) return new TaxCalculation(null, 0L);
         float percentage = rate.getRate();
         if (!Float.isFinite(percentage) || percentage < 0f || percentage > 100f)
             throw new IllegalStateException("Tax rate must be between 0 and 100 percent");
