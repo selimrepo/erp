@@ -652,7 +652,7 @@ public class ErpWorkflowService {
             throw new IllegalStateException("Unsupported invoice type for ledger posting");
         }
         String entryId = (creditNote ? "CN-" : "INV-") + invoiceId;
-        JournalPost journal = new JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
+        ErpWorkflowRequests.JournalPost journal = new ErpWorkflowRequests.JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
                 request.companyId(), entryId, request.entryDate(), request.description(),
                 creditNote ? "REVERSAL" : (sourceType == InvoiceType.SALE ? "SALES" : "PURCHASE"), lines);
         Map<String,Object> posted = postJournal(journal);
@@ -735,7 +735,7 @@ public class ErpWorkflowService {
                 lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.ZERO, BigDecimal.valueOf(taxAmount), "Input tax reversal"));
             }
         }
-        JournalPost journal = new JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
+        ErpWorkflowRequests.JournalPost journal = new ErpWorkflowRequests.JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
                 request.companyId(), sourceId, request.entryDate(), request.description(),
                 creditNote ? "REVERSAL" : (sourceType == InvoiceType.SALE ? "SALES" : "PURCHASE"), lines);
         Map<String,Object> posted = postJournal(journal);
@@ -763,10 +763,10 @@ public class ErpWorkflowService {
             em.flush();
             return result("payment", paymentId, "journalEntry", alreadyPosted.get(0).getId(), "idempotentReplay", true);
         }
-        JournalPost journal = new JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
+        ErpWorkflowRequests.JournalPost journal = new ErpWorkflowRequests.JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
                 request.companyId(), entryId, request.entryDate(), request.description(), "PAYMENT",
-                List.of(new JournalLine(request.debitAccountId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, request.description()),
-                        new JournalLine(request.creditAccountId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), request.description())));
+                List.of(new ErpWorkflowRequests.JournalLine(request.debitAccountId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, request.description()),
+                        new ErpWorkflowRequests.JournalLine(request.creditAccountId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), request.description())));
         Map<String,Object> posted = postJournal(journal);
         payment.setLedgerPostingValidated(true);
         payment.setLedgerJournalEntry(required(JournalEntry.class, ((Number) posted.get("journalEntry")).longValue()));
@@ -795,10 +795,10 @@ public class ErpWorkflowService {
         AccountDeterminationRule rule = rules.get(0);
         long amount = payment.getAmount()==null?0L:payment.getAmount();
         if (amount <= 0) throw new IllegalStateException("Payment amount must be positive");
-        JournalPost journal = new JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
+        ErpWorkflowRequests.JournalPost journal = new ErpWorkflowRequests.JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
                 request.companyId(), "PAY-" + paymentId, request.entryDate(), request.description(), "PAYMENT",
-                List.of(new JournalLine(rule.getDebitAccount().getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, "Bank/cash or payable"),
-                        new JournalLine(rule.getCreditAccount().getId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), "Receivable or bank/cash")));
+                List.of(new ErpWorkflowRequests.JournalLine(rule.getDebitAccount().getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, "Bank/cash or payable"),
+                        new ErpWorkflowRequests.JournalLine(rule.getCreditAccount().getId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), "Receivable or bank/cash")));
         Map<String,Object> posted = postJournal(journal);
         payment.setLedgerPostingValidated(true);
         payment.setLedgerJournalEntry(required(JournalEntry.class, ((Number) posted.get("journalEntry")).longValue()));
@@ -809,13 +809,15 @@ public class ErpWorkflowService {
 
     @Transactional
     public Map<String,Object> postJournal(ErpWorkflowRequests.JournalPost request) {
+        String journalHash = hash(request.toString());
         List<JournalEntry> existing=em.createQuery("select j from JournalEntry j where j.idempotencyKey=:key",JournalEntry.class)
                 .setParameter("key",request.idempotencyKey()).setMaxResults(1).getResultList();
         if(!existing.isEmpty()) {
             JournalEntry prior = existing.get(0);
             if (!Objects.equals(prior.getEntryId(), request.entryId())
                     || !Objects.equals(prior.getFiscalYear().getId(), request.fiscalYearId())
-                    || !Objects.equals(prior.getFiscalPeriod().getId(), request.fiscalPeriodId()))
+                    || !Objects.equals(prior.getFiscalPeriod().getId(), request.fiscalPeriodId())
+                    || !Objects.equals(prior.getIdempotencyPayloadHash(), journalHash))
                 throw new IllegalArgumentException("Idempotency key was already used for a different journal");
             return result("journalEntry",prior.getId(),"idempotentReplay",true);
         }
