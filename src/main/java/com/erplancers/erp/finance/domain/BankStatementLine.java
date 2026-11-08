@@ -26,4 +26,5 @@ public class BankStatementLine extends EntityBase {
     private LocalDateTime reconciledAt;
     @Transient private boolean reconciliationValidated;
     @Transient private Long persistedMatchedPaymentId;
+    @Transient private String persistedReconciliationFingerprint;
 }
