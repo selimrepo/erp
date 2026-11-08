@@ -25,6 +25,7 @@ export const api={
  createSalesOrder:(body:object,c:Credentials)=>apiFetch<any>("/workflows/sales/orders",c,{method:"POST",body:JSON.stringify(body)}),
  createPurchaseOrder:(body:object,c:Credentials)=>apiFetch<any>("/workflows/procurement/purchases",c,{method:"POST",body:JSON.stringify(body)}),
  adjustStock:(body:object,c:Credentials)=>apiFetch<any>("/workflows/inventory/stock-adjustments",c,{method:"POST",body:JSON.stringify(body)}),
+ transferStock:(body:object,c:Credentials)=>apiFetch<any>("/workflows/inventory/stock-transfers",c,{method:"POST",body:JSON.stringify(body)}),
  shipSalesOrder:(id:number,idempotencyKey:string,c:Credentials)=>apiFetch<any>(`/workflows/sales/orders/${id}/ship`,c,{method:"POST",body:JSON.stringify({idempotencyKey})}),
  cancelSalesOrder:(id:number,idempotencyKey:string,c:Credentials)=>apiFetch<any>(`/workflows/sales/orders/${id}/cancel`,c,{method:"POST",body:JSON.stringify({idempotencyKey})}),
  receivePurchase:(id:number,storeId:number,idempotencyKey:string,c:Credentials)=>apiFetch<any>(`/workflows/procurement/purchases/${id}/receive?storeId=${storeId}`,c,{method:"POST",body:JSON.stringify({idempotencyKey})}),
