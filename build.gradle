@@ -9,31 +9,19 @@ group = 'com.erplancers'
 version = '0.0.1-SNAPSHOT'
 
 repositories {
-	// Resolve SnakeYAML only through its Maven POM. The Gradle module metadata
-	// advertises an Android-classified artifact that is not published for this JVM.
-	maven {
-		name = 'MavenCentralSnakeYamlJvm'
-		url = uri('https://repo.maven.apache.org/maven2')
-		content {
-			includeGroup 'org.yaml'
-		}
-		metadataSources {
-			mavenPom()
-		}
-	}
-	mavenCentral {
-		content {
-			excludeGroup 'org.yaml'
-		}
-	}
+	mavenCentral()
 }
 
 // Keep Spring Boot's Logback logging backend as the sole SLF4J provider.
 // Spark's log4j-slf4j2-impl conflicts with Boot's log4j-to-slf4j bridge.
 
 dependencies {
-	implementation 'com.github.javafaker:javafaker:1.0.2'
-	implementation 'org.yaml:snakeyaml:2.4'
+	implementation('com.github.javafaker:javafaker:1.0.2') {
+		exclude group: 'org.yaml', module: 'snakeyaml'
+	}
+	// Artifact-only notation bypasses the upstream Gradle module metadata's
+	// unavailable Android classifier and resolves the ordinary JVM JAR.
+	implementation 'org.yaml:snakeyaml:2.4@jar'
 	implementation 'org.webjars:bootstrap:5.3.8'
 	implementation 'org.springframework.kafka:spring-kafka'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
