@@ -27,4 +27,5 @@ public class JournalEntry extends EntityBase {
     @OneToMany(mappedBy = "journalEntry", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<JournalEntryLine> lines = new LinkedHashSet<>();
     @Transient private String persistedPostingFingerprint;
+    @Transient private boolean postingValidated;
 }
