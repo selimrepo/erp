@@ -33,4 +33,10 @@ public class ProductStockLocationLifecycleListener {
         stock.setPersistedQuantity(stock.getQuantity());
         stock.setStockAdjustmentValidated(false);
     }
+
+    @jakarta.persistence.PreRemove
+    public void preventDelete(ProductStockLocation stock) {
+        if (stock.getQuantity() != null && stock.getQuantity() != 0)
+            throw new IllegalStateException("Non-zero stock balances cannot be deleted");
+    }
 }
