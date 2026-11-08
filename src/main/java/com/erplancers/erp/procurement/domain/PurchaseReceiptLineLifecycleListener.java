@@ -18,6 +18,9 @@ public class PurchaseReceiptLineLifecycleListener {
             throw new IllegalStateException("Receipt line detail must belong to the receipt purchase");
     }
 
+    @jakarta.persistence.PostPersist
+    public void clearAuthorization(PurchaseReceiptLine line) { line.setReceiptLineValidated(false); }
+
     @jakarta.persistence.PreUpdate
     public void preventUpdate(PurchaseReceiptLine line) {
         throw new IllegalStateException("Purchase receipt lines are immutable; use a return or correction workflow");
