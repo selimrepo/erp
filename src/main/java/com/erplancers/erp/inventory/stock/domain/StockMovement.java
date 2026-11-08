@@ -10,6 +10,7 @@ import lombok.Setter;
 import java.time.Instant;
 
 @Entity
+@EntityListeners(StockMovementLifecycleListener.class)
 @Table(name = "stock_movement", uniqueConstraints = @UniqueConstraint(name = "uk_stock_movement_idempotency", columnNames = "idempotency_key"))
 @Getter @Setter @NoArgsConstructor
 public class StockMovement extends EntityBase {
