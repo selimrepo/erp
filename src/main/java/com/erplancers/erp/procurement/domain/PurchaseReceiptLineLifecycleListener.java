@@ -6,6 +6,8 @@ import jakarta.persistence.PreUpdate;
 public class PurchaseReceiptLineLifecycleListener {
     @PrePersist
     public void validateInsert(PurchaseReceiptLine line) {
+        if (!line.isReceiptLineValidated())
+            throw new IllegalStateException("Receipt lines can only be created by the goods-receipt workflow");
         if (line.getReceipt() == null || line.getPurchaseDetail() == null)
             throw new IllegalStateException("Receipt line requires a receipt and purchase detail");
         if (line.getQuantity() == null || line.getQuantity() <= 0)
