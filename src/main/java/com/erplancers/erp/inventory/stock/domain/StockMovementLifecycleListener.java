@@ -18,6 +18,9 @@ public class StockMovementLifecycleListener {
             throw new IllegalStateException("Stock movement requires positive quantity and complete source metadata");
     }
 
+    @jakarta.persistence.PostPersist
+    public void clearAuthorization(StockMovement movement) { movement.setMovementValidated(false); }
+
     @PreUpdate
     public void preventUpdate(StockMovement movement) {
         throw new IllegalStateException("Stock movements are immutable ledger records");
