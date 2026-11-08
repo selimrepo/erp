@@ -458,6 +458,7 @@ public class ErpWorkflowService {
                 List.of(new JournalLine(request.debitAccountId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, request.description()),
                         new JournalLine(request.creditAccountId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), request.description())));
         Map<String,Object> posted = postJournal(journal);
+        invoice.setLedgerJournalEntry(required(JournalEntry.class, ((Number) posted.get("journalEntry")).longValue()));
         invoice.setInvoiceStatus(InvoiceStatus.POSTED);
         em.flush();
         return result("invoice", invoiceId, "journalEntry", posted.get("journalEntry"),
@@ -552,7 +553,40 @@ public class ErpWorkflowService {
                 List.of(new JournalLine(request.debitAccountId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, request.description()),
                         new JournalLine(request.creditAccountId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), request.description())));
         Map<String,Object> posted = postJournal(journal);
+        payment.setLedgerJournalEntry(required(JournalEntry.class, ((Number) posted.get("journalEntry")).longValue()));
+        em.flush();
         return result("payment", paymentId, "journalEntry", posted.get("journalEntry"),
+                "status", "POSTED", "idempotentReplay", posted.get("idempotentReplay"));
+    }
+
+    @Transactional
+    public Map<String,Object> postPaymentAutomatically(Long paymentId, ErpWorkflowRequests.AutoDocumentPosting request) {
+        PaymentTransaction payment = em.find(PaymentTransaction.class, paymentId, LockModeType.PESSIMISTIC_WRITE);
+        if (payment == null) throw new IllegalArgumentException("Payment not found: " + paymentId);
+        if (payment.getLedgerJournalEntry() != null)
+            return result("payment", paymentId, "journalEntry", payment.getLedgerJournalEntry().getId(), "idempotentReplay", true);
+        if (!"COMPLETED".equalsIgnoreCase(payment.getStatus())) throw new IllegalStateException("Only completed payments can be posted");
+        String eventType = payment.getPaymentTransactionDirection() == PaymentTransactionDirection.SALES ? "CUSTOMER_RECEIPT" : "SUPPLIER_PAYMENT";
+        List<AccountDeterminationRule> rules;
+        if (request.companyId() == null) {
+            rules = em.createQuery("select r from AccountDeterminationRule r where r.active=true and r.eventType=:event and r.company is null order by r.priority asc", AccountDeterminationRule.class)
+                    .setParameter("event", eventType).setMaxResults(1).getResultList();
+        } else {
+            rules = em.createQuery("select r from AccountDeterminationRule r where r.active=true and r.eventType=:event and (r.company.id=:company or r.company is null) order by case when r.company.id=:company then 0 else 1 end, r.priority asc", AccountDeterminationRule.class)
+                    .setParameter("event", eventType).setParameter("company", request.companyId()).setMaxResults(1).getResultList();
+        }
+        if (rules.isEmpty()) throw new IllegalStateException("No active account determination rule configured for " + eventType);
+        AccountDeterminationRule rule = rules.get(0);
+        long amount = payment.getAmount()==null?0L:payment.getAmount();
+        if (amount <= 0) throw new IllegalStateException("Payment amount must be positive");
+        JournalPost journal = new JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
+                request.companyId(), "PAY-" + paymentId, request.entryDate(), request.description(), "PAYMENT",
+                List.of(new JournalLine(rule.getDebitAccount().getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, "Bank/cash or payable"),
+                        new JournalLine(rule.getCreditAccount().getId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), "Receivable or bank/cash")));
+        Map<String,Object> posted = postJournal(journal);
+        payment.setLedgerJournalEntry(required(JournalEntry.class, ((Number) posted.get("journalEntry")).longValue()));
+        em.flush();
+        return result("payment", paymentId, "journalEntry", posted.get("journalEntry"), "eventType", eventType,
                 "status", "POSTED", "idempotentReplay", posted.get("idempotentReplay"));
     }
 
