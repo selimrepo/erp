@@ -3,17 +3,14 @@ plugins {
 	id 'org.springframework.boot' version '4.0.7'
 	id 'io.spring.dependency-management' version '1.1.7'
 	id 'org.hibernate.orm' version '7.2.19.Final'
-	
 }
 
 group = 'com.erplancers'
 version = '0.0.1-SNAPSHOT'
 
-
-
 repositories {
-	// Resolve SnakeYAML from its Maven POM, not the Gradle module metadata that
-	// points this JVM application at the unavailable Android-classified JAR.
+	// Force Maven POM metadata for SnakeYAML. Its Gradle module metadata advertises
+	// an Android-classified artifact that is not published for this JVM dependency.
 	maven {
 		name = 'MavenCentralSnakeYamlJvm'
 		url = uri('https://repo.maven.apache.org/maven2')
@@ -23,32 +20,18 @@ repositories {
 		metadataSources {
 			mavenPom()
 			artifact()
+			ignoreGradleMetadataRedirection()
 		}
 	}
 	mavenCentral()
 }
 
-configurations.configureEach {
-    resolutionStrategy.force 'org.yaml:snakeyaml:2.4'
-    resolutionStrategy.eachDependency { details ->
-        if (details.requested.group == 'org.yaml' && details.requested.name == 'snakeyaml') {
-            details.useTarget('org.yaml:snakeyaml:2.4')
-            details.because('Use the JVM artifact; the 2.5 Android variant is not published at the selected Maven endpoint')
-        }
-    }
-}
-
 // Keep Spring Boot's Logback logging backend as the sole SLF4J provider.
 // Spark's log4j-slf4j2-impl conflicts with Boot's log4j-to-slf4j bridge.
-
-
 
 dependencies {
 	implementation 'com.github.javafaker:javafaker:1.0.2'
 	implementation 'org.yaml:snakeyaml:2.4'
-	// Analytics is compiled and packaged directly as part of the ERP backend.
-
-	// Source: https://mvnrepository.com/artifact/org.webjars/bootstrap
 	implementation 'org.webjars:bootstrap:5.3.8'
 	implementation 'org.springframework.kafka:spring-kafka'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
@@ -81,20 +64,16 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-batch-jdbc-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-batch-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
-
-
 	testImplementation 'org.springframework.boot:spring-boot-starter-quartz-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-websocket-test'
 	testImplementation 'org.springframework.security:spring-security-test'
-
 	runtimeOnly 'com.h2database:h2'
 	testCompileOnly 'org.projectlombok:lombok:1.18.42'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok:1.18.42'
 }
-
 
 hibernate {
 	enhancement {
