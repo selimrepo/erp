@@ -9,8 +9,8 @@ group = 'com.erplancers'
 version = '0.0.1-SNAPSHOT'
 
 repositories {
-	// Force Maven POM metadata for SnakeYAML. Its Gradle module metadata advertises
-	// an Android-classified artifact that is not published for this JVM dependency.
+	// Resolve SnakeYAML only through its Maven POM. The Gradle module metadata
+	// advertises an Android-classified artifact that is not published for this JVM.
 	maven {
 		name = 'MavenCentralSnakeYamlJvm'
 		url = uri('https://repo.maven.apache.org/maven2')
@@ -19,11 +19,13 @@ repositories {
 		}
 		metadataSources {
 			mavenPom()
-			artifact()
-			ignoreGradleMetadataRedirection()
 		}
 	}
-	mavenCentral()
+	mavenCentral {
+		content {
+			excludeGroup 'org.yaml'
+		}
+	}
 }
 
 // Keep Spring Boot's Logback logging backend as the sole SLF4J provider.
