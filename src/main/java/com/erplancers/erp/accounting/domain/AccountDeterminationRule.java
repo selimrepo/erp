@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
+@EntityListeners(AccountDeterminationRuleLifecycleListener.class)
 @Table(name="account_determination_rule",
     uniqueConstraints=@UniqueConstraint(name="uk_account_rule_company_event", columnNames={"company_id","event_type","priority"}))
 @Getter @Setter @NoArgsConstructor
