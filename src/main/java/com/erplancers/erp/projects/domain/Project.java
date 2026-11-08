@@ -26,7 +26,7 @@ import java.util.Set;
 
 public class Project extends EntityBase {
     
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Product> products;
     String name;
     @Column(length = 24, nullable = false) private String status = "PLANNED";
@@ -35,11 +35,11 @@ public class Project extends EntityBase {
     Location location;
     @ManyToOne(fetch = FetchType.LAZY)
     Customer customer;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<ProductDiscount> productDiscounts;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Assignment> assignments;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<ProjectTask> projectTasks;
     @Transient private boolean transitionValidated;
 }
