@@ -10,6 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 @Entity
+@EntityListeners(PurchaseReceiptLifecycleListener.class)
 @Table(name="purchase_receipt", uniqueConstraints=@UniqueConstraint(name="uk_purchase_receipt_idempotency", columnNames="idempotency_key"))
 @Getter @Setter @NoArgsConstructor
 public class PurchaseReceipt extends EntityBase {
