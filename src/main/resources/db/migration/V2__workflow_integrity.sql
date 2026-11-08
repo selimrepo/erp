@@ -30,7 +30,9 @@ BEGIN
     END IF;
     IF to_regclass('public.purchase') IS NOT NULL THEN
         EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS ux_purchase_idempotency_key ON purchase(idempotency_key) WHERE idempotency_key IS NOT NULL';
-        EXECUTE 'CREATE INDEX IF NOT EXISTS ix_purchase_detail_purchase ON purchase_detail(purchase_id)' ;
+        IF to_regclass('public.purchase_detail') IS NOT NULL THEN
+            EXECUTE 'CREATE INDEX IF NOT EXISTS ix_purchase_detail_purchase ON purchase_detail(purchase_id)';
+        END IF;
     END IF;
     IF to_regclass('public.payment_transaction') IS NOT NULL THEN
         EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS ux_payment_transaction_idempotency_key ON payment_transaction(idempotency_key) WHERE idempotency_key IS NOT NULL';
