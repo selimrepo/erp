@@ -28,13 +28,13 @@ public class Opportunity extends EntityBase {
     String name;
     @Column(length = 24, nullable = false) private String status = "NEW";
     LocalDate date;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Campaign> campaigns;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Lead> leads;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Product> products;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Project> projects;
     @Transient private boolean transitionValidated;
 }
