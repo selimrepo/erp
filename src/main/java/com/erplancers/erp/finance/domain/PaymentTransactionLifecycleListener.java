@@ -15,6 +15,7 @@ public class PaymentTransactionLifecycleListener {
         payment.setPersistedFinancialFingerprint(fingerprint(payment));
         payment.setPersistedPaymentStatus(payment.getStatus());
         payment.setPersistedLedgerJournalEntryId(payment.getLedgerJournalEntry() == null ? null : payment.getLedgerJournalEntry().getId());
+        payment.setSettlementValidated(false);
     }
 
     @PrePersist @PreUpdate
