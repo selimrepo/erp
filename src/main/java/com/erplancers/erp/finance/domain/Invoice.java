@@ -1,36 +1,24 @@
 package com.erplancers.erp.finance.domain;
 
 import com.erplancers.erp.common.domain.EntityBase;
-
 import com.erplancers.erp.crm.contact.domain.Contact;
 import jakarta.persistence.*;
-
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.*;
-
+import lombok.Setter;
 import java.util.Set;
 
-@Entity
-@NoArgsConstructor
-@Getter
-@Setter
-
+@Entity @NoArgsConstructor @Getter @Setter
+@Table(uniqueConstraints = @UniqueConstraint(name = "uk_invoice_workflow_key", columnNames = "workflow_key"))
 public class Invoice extends EntityBase {
-    
-    String invoiceName;
-    String invoiceDescription;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
-    Set<Contact> billingContacts;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
-    Set<Contact> shippingContacts;
-    @ManyToOne
-
-    Currency currency;
-    Long amount;
-    @Enumerated(EnumType.STRING)
-    InvoiceStatus invoiceStatus;
-    @Enumerated(EnumType.STRING)
-    InvoiceType invoiceType;
-
+    private String invoiceName;
+    private String invoiceDescription;
+    @ManyToMany(fetch = FetchType.LAZY) private Set<Contact> billingContacts;
+    @ManyToMany(fetch = FetchType.LAZY) private Set<Contact> shippingContacts;
+    @ManyToOne(fetch = FetchType.LAZY) private Currency currency;
+    private Long amount;
+    private Long paidAmount = 0L;
+    @Column(name = "workflow_key", length = 180) private String workflowKey;
+    @Enumerated(EnumType.STRING) private InvoiceStatus invoiceStatus;
+    @Enumerated(EnumType.STRING) private InvoiceType invoiceType;
 }
