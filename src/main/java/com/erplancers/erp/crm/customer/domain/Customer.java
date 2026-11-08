@@ -23,9 +23,9 @@ import java.util.Set;
 @Table
 
 public class Customer extends EntityBase {
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     Contact contact;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     CustomerGroup customerGroup;
     @OneToMany
     Set<Purchase> purchases;
