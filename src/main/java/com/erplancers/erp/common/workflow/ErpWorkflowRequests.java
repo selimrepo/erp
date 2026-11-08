@@ -20,7 +20,7 @@ public final class ErpWorkflowRequests {
                                          @NotBlank @Size(max = 500) String reason) {}
     public record StockTransferRequest(@NotBlank @Size(max = 160) String idempotencyKey, @NotNull Long productId,
                                        @NotNull Long sourceStoreId, @NotNull Long destinationStoreId,
-                                       @NotNull @Positive Long quantity, @NotBlank @Size(max = 500) String reason) {}
+                                       @NotNull @Positive Long quantity) {}
     public record ReceivePurchase(@NotBlank @Size(max = 160) String idempotencyKey) {}
     public record PurchaseReceiptLineInput(@NotNull Long purchaseDetailId, @NotNull @Positive Long quantity) {}
     public record PartialReceivePurchase(@NotBlank @Size(max = 160) String idempotencyKey, @NotEmpty List<@Valid PurchaseReceiptLineInput> lines) {}
