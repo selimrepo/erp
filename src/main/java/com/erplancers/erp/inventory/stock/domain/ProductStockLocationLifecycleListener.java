@@ -22,6 +22,12 @@ public class ProductStockLocationLifecycleListener {
             throw new IllegalStateException("Stock quantities can only be changed through a stock movement workflow");
     }
 
+    @jakarta.persistence.PostPersist
+    public void clearAfterInsert(ProductStockLocation stock) {
+        stock.setPersistedQuantity(stock.getQuantity());
+        stock.setStockAdjustmentValidated(false);
+    }
+
     @PostUpdate
     public void captureAfterUpdate(ProductStockLocation stock) {
         stock.setPersistedQuantity(stock.getQuantity());
