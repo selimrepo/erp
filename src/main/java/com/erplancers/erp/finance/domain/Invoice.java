@@ -29,5 +29,7 @@ public class Invoice extends EntityBase {
     @Enumerated(EnumType.STRING) private InvoiceType invoiceType;
     @Transient private String persistedAmountFingerprint;
     @Transient private String persistedSettlementFingerprint;
+    @Transient private Long persistedLedgerJournalEntryId;
+    @Transient private boolean ledgerPostingValidated;
     @Transient private boolean settlementValidated;
 }
