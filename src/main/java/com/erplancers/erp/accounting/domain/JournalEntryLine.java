@@ -9,7 +9,7 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-@Entity @NoArgsConstructor @Getter @Setter
+@Entity @EntityListeners(JournalEntryLineLifecycleListener.class) @NoArgsConstructor @Getter @Setter
 public class JournalEntryLine extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY, optional = false) private JournalEntry journalEntry;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) private Account account;
