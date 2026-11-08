@@ -2,6 +2,7 @@ package com.erplancers.erp.sales.order.domain;
 
 import com.erplancers.erp.common.domain.EntityBase;
 import com.erplancers.erp.inventory.product.domain.Product;
+import com.erplancers.erp.tax.domain.TaxRate;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -21,4 +22,6 @@ public class OrderLine extends EntityBase {
     private Long unitPrice;
     @Column(nullable = false)
     private Long lineTotal;
+    @ManyToOne(fetch = FetchType.LAZY) private TaxRate taxRate;
+    @Column(nullable = false) private Long taxAmount = 0L;
 }
