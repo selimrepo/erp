@@ -12,6 +12,19 @@ version = '0.0.1-SNAPSHOT'
 
 
 repositories {
+	// Resolve SnakeYAML from its Maven POM, not the Gradle module metadata that
+	// points this JVM application at the unavailable Android-classified JAR.
+	maven {
+		name = 'MavenCentralSnakeYamlJvm'
+		url = uri('https://repo.maven.apache.org/maven2')
+		content {
+			includeGroup 'org.yaml'
+		}
+		metadataSources {
+			mavenPom()
+			artifact()
+		}
+	}
 	mavenCentral()
 }
 
