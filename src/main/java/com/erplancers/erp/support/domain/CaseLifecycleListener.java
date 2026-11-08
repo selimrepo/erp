@@ -8,7 +8,7 @@ public class CaseLifecycleListener {
     public void validate(Case supportCase) {
         if (supportCase.getStatus() == null || supportCase.getStatus().isBlank())
             throw new IllegalStateException("Support case requires a status");
-        if (("RESOLVED".equals(supportCase.getStatus()) || "CLOSED".equals(supportCase.getStatus()))
+        if (("RESOLVED".equalsIgnoreCase(supportCase.getStatus()) || "CLOSED".equalsIgnoreCase(supportCase.getStatus()))
                 && (supportCase.getResolution() == null || supportCase.getResolution().isBlank()))
             throw new IllegalStateException("Resolved or closed support cases require a resolution");
     }
