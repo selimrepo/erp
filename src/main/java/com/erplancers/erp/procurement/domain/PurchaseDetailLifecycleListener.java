@@ -34,4 +34,10 @@ public class PurchaseDetailLifecycleListener {
         line.setPersistedReceivedQuantity(line.getReceivedQuantity());
         line.setReceiptValidated(false);
     }
+
+    @jakarta.persistence.PreRemove
+    public void preventDelete(PurchaseDetail line) {
+        if (line.getPurchase() != null && !"DRAFT".equals(line.getPurchase().getStatus()))
+            throw new IllegalStateException("Ordered purchase lines cannot be deleted; use a purchase amendment workflow");
+    }
 }
