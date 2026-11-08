@@ -8,9 +8,12 @@ import jakarta.persistence.PreUpdate;
 public class OrderLifecycleListener {
     @PrePersist
     public void validateInsert(Order order) {
-        if (order.getOrderStatus() != OrderStatus.PROCESSING)
+        if (!order.isOrderCreationValidated() || order.getOrderStatus() != OrderStatus.PROCESSING)
             throw new IllegalStateException("Orders must enter the workflow in PROCESSING state");
     }
+
+    @jakarta.persistence.PostPersist
+    public void clearCreationAuthorization(Order order) { order.setOrderCreationValidated(false); }
 
     @PreUpdate
     public void validateTransition(Order order) {
