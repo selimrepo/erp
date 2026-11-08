@@ -5,6 +5,7 @@ import com.erplancers.erp.crm.contact.domain.Contact;
 import com.erplancers.erp.crm.contact.domain.Location;
 import com.erplancers.erp.crm.customer.domain.Customer;
 import com.erplancers.erp.finance.domain.*;
+import com.erplancers.erp.finance.domain.Currency;
 import com.erplancers.erp.inventory.product.domain.Product;
 import com.erplancers.erp.inventory.stock.domain.*;
 import com.erplancers.erp.inventory.warehouse.domain.Store;
