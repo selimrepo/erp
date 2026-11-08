@@ -35,4 +35,5 @@ public class Opportunity extends EntityBase {
     Set<Product> products;
     @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
     Set<Project> projects;
+    @Transient private boolean transitionValidated;
 }
