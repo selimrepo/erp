@@ -23,5 +23,6 @@ public class PaymentTransaction extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY) private Currency currency;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) private Invoice invoice;
     @ManyToOne(fetch = FetchType.LAZY) private Contact contact;
+    @ManyToOne(fetch = FetchType.LAZY) private com.erplancers.erp.accounting.domain.JournalEntry ledgerJournalEntry;
     @Enumerated(EnumType.STRING) private PaymentTransactionDirection paymentTransactionDirection;
 }
