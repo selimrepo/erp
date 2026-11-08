@@ -15,6 +15,9 @@ public final class ErpWorkflowRequests {
     public record PurchaseLine(@NotNull Long productId, @NotNull @Positive Long quantity, @NotNull @PositiveOrZero Long unitPrice, Long taxRateId) { public PurchaseLine(Long productId, Long quantity, Long unitPrice) { this(productId, quantity, unitPrice, null); } }
     public record PurchaseOrder(@NotBlank @Size(max = 160) String idempotencyKey, @NotNull Long supplierId, @NotNull Long storeId, @NotNull Long currencyId,
                                 @NotEmpty List<@Valid PurchaseLine> lines, String notes) {}
+    public record StockAdjustmentRequest(@NotBlank @Size(max = 160) String idempotencyKey, @NotNull Long productId,
+                                         @NotNull Long storeId, @NotNull Long deltaQuantity,
+                                         @NotBlank @Size(max = 500) String reason) {}
     public record ReceivePurchase(@NotBlank @Size(max = 160) String idempotencyKey) {}
     public record PurchaseReceiptLineInput(@NotNull Long purchaseDetailId, @NotNull @Positive Long quantity) {}
     public record PartialReceivePurchase(@NotBlank @Size(max = 160) String idempotencyKey, @NotEmpty List<@Valid PurchaseReceiptLineInput> lines) {}
