@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import java.util.Set;
 
-@Entity @NoArgsConstructor @Getter @Setter
+@Entity @EntityListeners(InvoiceLifecycleListener.class) @NoArgsConstructor @Getter @Setter
 @Table(uniqueConstraints = @UniqueConstraint(name = "uk_invoice_workflow_key", columnNames = "workflow_key"))
 public class Invoice extends EntityBase {
     private String invoiceName;
