@@ -13,6 +13,8 @@ public class PaymentTransactionLifecycleListener {
     @PostLoad @PostPersist
     public void capture(PaymentTransaction payment) {
         payment.setPersistedFinancialFingerprint(fingerprint(payment));
+        payment.setPersistedPaymentStatus(payment.getStatus());
+        payment.setPersistedLedgerJournalEntryId(payment.getLedgerJournalEntry() == null ? null : payment.getLedgerJournalEntry().getId());
     }
 
     @PrePersist @PreUpdate
@@ -27,15 +29,25 @@ public class PaymentTransactionLifecycleListener {
         }
         if (payment.getLedgerJournalEntry() != null && !"COMPLETED".equalsIgnoreCase(payment.getStatus()))
             throw new IllegalStateException("Only completed payments can be linked to a ledger journal");
+        if ("COMPLETED".equalsIgnoreCase(payment.getPersistedPaymentStatus())
+                && !"COMPLETED".equalsIgnoreCase(payment.getStatus()))
+            throw new IllegalStateException("Completed payments cannot be reopened or deleted through status updates");
         if (payment.getPersistedFinancialFingerprint() != null
                 && "COMPLETED".equalsIgnoreCase(payment.getStatus())
                 && !Objects.equals(payment.getPersistedFinancialFingerprint(), fingerprint(payment)))
             throw new IllegalStateException("Completed payment financial fields are immutable");
+        Long currentJournalId = payment.getLedgerJournalEntry() == null ? null : payment.getLedgerJournalEntry().getId();
+        if (!Objects.equals(payment.getPersistedLedgerJournalEntryId(), currentJournalId)
+                && !payment.isLedgerPostingValidated())
+            throw new IllegalStateException("Payment ledger linkage can only be changed by the posting workflow");
     }
 
     @PostUpdate
     public void captureAfterUpdate(PaymentTransaction payment) {
         payment.setPersistedFinancialFingerprint(fingerprint(payment));
+        payment.setPersistedPaymentStatus(payment.getStatus());
+        payment.setPersistedLedgerJournalEntryId(payment.getLedgerJournalEntry() == null ? null : payment.getLedgerJournalEntry().getId());
+        payment.setLedgerPostingValidated(false);
     }
 
     @PreRemove
