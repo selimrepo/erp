@@ -18,6 +18,9 @@ public class Invoice extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY) private Currency currency;
     private Long amount;
     private Long paidAmount = 0L;
+    @Column(nullable = false) private Long creditedAmount = 0L;
+    @ManyToOne(fetch = FetchType.LAZY) private Invoice originalInvoice;
+    private String creditNoteReason;
     @Column(name = "workflow_key", length = 180) private String workflowKey;
     @Enumerated(EnumType.STRING) private InvoiceStatus invoiceStatus;
     @Enumerated(EnumType.STRING) private InvoiceType invoiceType;
