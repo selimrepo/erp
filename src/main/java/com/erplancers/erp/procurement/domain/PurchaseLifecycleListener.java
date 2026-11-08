@@ -30,7 +30,7 @@ public class PurchaseLifecycleListener {
 
     @PreRemove
     public void preventDelete(Purchase purchase) {
-        if ("PARTIALLY_RECEIVED".equals(purchase.getStatus()) || "RECEIVED".equals(purchase.getStatus()))
+        if (!"DRAFT".equals(purchase.getStatus()))
             throw new IllegalStateException("Received purchases cannot be deleted");
     }
 }
