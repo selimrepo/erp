@@ -28,4 +28,5 @@ public class JournalEntry extends EntityBase {
     private Set<JournalEntryLine> lines = new LinkedHashSet<>();
     @Transient private String persistedPostingFingerprint;
     @Transient private boolean postingValidated;
+    @Transient private boolean postingValidated;
 }
