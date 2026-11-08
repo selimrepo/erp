@@ -20,6 +20,7 @@ public class PaymentTransaction extends EntityBase {
     private Long quantity;
     private Long payment;
     @Column(name = "idempotency_key", length = 180) private String idempotencyKey;
+    @Column(name = "idempotency_payload_hash", length = 64) private String idempotencyPayloadHash;
     @ManyToOne(fetch = FetchType.LAZY) private Currency currency;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) private Invoice invoice;
     @ManyToOne(fetch = FetchType.LAZY) private Contact contact;
