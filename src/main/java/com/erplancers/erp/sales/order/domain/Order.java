@@ -14,6 +14,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 @Entity
+@EntityListeners(OrderLifecycleListener.class)
 @NoArgsConstructor @Getter @Setter
 @Table(name = "erporder", uniqueConstraints = @UniqueConstraint(name = "uk_erporder_idempotency", columnNames = "idempotency_key"))
 public class Order extends EntityBase {
