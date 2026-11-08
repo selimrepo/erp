@@ -6,11 +6,13 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import java.time.LocalDate;
 
 @Entity @NoArgsConstructor @Getter @Setter
 @Table(uniqueConstraints = @UniqueConstraint(name = "uk_payment_idempotency", columnNames = "idempotency_key"))
 public class PaymentTransaction extends EntityBase {
     private String status;
+    private LocalDate paymentDate;
     private String description;
     private String data;
     private String referenceId;
