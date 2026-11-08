@@ -2,6 +2,7 @@ import {useMemo,useState,type FormEvent} from "react";
 import {QueryClient,QueryClientProvider,useMutation,useQuery,useQueryClient} from "@tanstack/react-query";
 import {AuthProvider,useAuth} from "../auth";
 import {api} from "../api";
+import {WorkflowPanel} from "./WorkflowPanel";
 type Config={id:string;title:string;description:string;match:string[]};
 const client=new QueryClient();
 export function ModuleApp({config}:{config:Config}){return <QueryClientProvider client={client}><AuthProvider><Workspace config={config}/></AuthProvider></QueryClientProvider>}
@@ -30,6 +31,7 @@ function AuthenticatedWorkspace({config,credentials}:{config:Config;credentials:
  return <main style={{minHeight:"100vh",background:"#f4f6fa",color:"#172033",fontFamily:"Inter,system-ui,sans-serif"}}>
  <header style={{background:"#111c32",color:"white",padding:"20px 28px",display:"flex",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}><div><small style={{letterSpacing:2,color:"#9aacc9"}}>ERPLANCERS · INDEPENDENT MODULE</small><h1 style={{margin:"5px 0"}}>{config.title}</h1><span>{config.description}</span></div><small>{credentials.username}</small></header>
  <section style={{padding:24,maxWidth:1500,margin:"auto"}}>
+ <WorkflowPanel moduleId={config.id} credentials={credentials}/>
  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:18}}><Metric label="Module resources" value={resources.length}/><Metric label="ERP records" value={dashboardQ.data?.totalRecords??0}/><Metric label="ERP modules" value={dashboardQ.data?.moduleCount??0}/></div>
  <div style={{display:"grid",gridTemplateColumns:"minmax(220px,280px) minmax(0,1fr)",gap:16,alignItems:"start"}}>
  <aside style={panel}><h3>Resources</h3><input placeholder="Search resources" value={search} onChange={e=>setSearch(e.target.value)} style={input}/>{resources.map(r=><button key={r.slug} onClick={()=>{setSelected(r.slug);setPage(0);setDraft(null)}} style={{...nav,background:slug===r.slug?"#edf3ff":"white"}}><b>{r.entity||r.name}</b><small style={{display:"block",color:"#718096"}}>{r.slug}</small></button>)}</aside>
