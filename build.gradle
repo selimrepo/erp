@@ -28,6 +28,10 @@ repositories {
 	mavenCentral()
 }
 
+configurations.configureEach {
+    resolutionStrategy.force 'org.yaml:snakeyaml:2.4'
+}
+
 // Keep Spring Boot's Logback logging backend as the sole SLF4J provider.
 // Spark's log4j-slf4j2-impl conflicts with Boot's log4j-to-slf4j bridge.
 
