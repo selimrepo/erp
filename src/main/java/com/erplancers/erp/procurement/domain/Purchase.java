@@ -1,32 +1,37 @@
 package com.erplancers.erp.procurement.domain;
 
 import com.erplancers.erp.common.domain.EntityBase;
-
-import com.erplancers.erp.crm.customer.domain.Customer;
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Entity;
-import jakarta.persistence.ManyToOne;
+import com.erplancers.erp.procurement.domain.Supplier;
+import com.erplancers.erp.finance.domain.Currency;
+import com.erplancers.erp.finance.domain.Invoice;
+import com.erplancers.erp.inventory.warehouse.domain.Store;
 import jakarta.persistence.*;
-
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.*;
-
+import lombok.Setter;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
-@Entity
-@NoArgsConstructor
-@Getter
-@Setter
-@Table
-
+@Entity @EntityListeners(PurchaseLifecycleListener.class) @NoArgsConstructor @Getter @Setter
+@Table(uniqueConstraints = @UniqueConstraint(name = "uk_purchase_idempotency", columnNames = "idempotency_key"))
 public class Purchase extends EntityBase {
-    
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
-    Customer customer;
-    LocalDateTime purchaseDate;
-    LocalDateTime approvedDate;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
-    Set<PurchaseDetail> purchaseDetails;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) private Supplier supplier;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) private Store store;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) private Currency currency;
+    @ManyToOne(fetch = FetchType.LAZY) private Invoice invoice;
+    private LocalDateTime purchaseDate;
+    private LocalDateTime approvedDate;
+    private Long totalAmount;
+    @Column(nullable = false) private Long taxAmount = 0L;
+    @Column(length = 24) private String status;
+    @Column(name = "idempotency_key", length = 180) private String idempotencyKey;
+    @Column(name = "idempotency_payload_hash", length = 64) private String idempotencyPayloadHash;
+    @Column(name = "receipt_idempotency_key", length = 180) private String receiptIdempotencyKey;
+    @OneToMany(mappedBy = "purchase", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private Set<PurchaseDetail> purchaseDetails = new LinkedHashSet<>();
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Transient private boolean receiptValidated;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Transient private boolean purchaseCreationValidated;
 }

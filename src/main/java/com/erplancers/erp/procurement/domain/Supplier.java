@@ -24,14 +24,14 @@ import java.util.Set;
 public class Supplier extends EntityBase {
     @ManyToOne
     Contact contact;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<StockItem> stockItems;
     String name;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Store> stores;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<StockItem> stockItemsNotInStock;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<StockItem> stockItemsComing;
 
 }

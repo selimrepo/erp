@@ -4,6 +4,7 @@ import com.erplancers.erp.common.domain.EntityBase;
 import com.erplancers.erp.crm.contact.domain.Location;
 import com.erplancers.erp.inventory.stock.domain.StockStatus;
 import com.erplancers.erp.procurement.domain.Supplier;
+import com.erplancers.erp.tax.domain.TaxClass;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.ManyToOne;
@@ -25,6 +26,7 @@ public class Product extends EntityBase {
     
     String productName;
     String productDescription;
+    @ManyToOne(fetch = FetchType.LAZY) private TaxClass taxClass;
     @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
     Location location;
     @Enumerated(EnumType.STRING)

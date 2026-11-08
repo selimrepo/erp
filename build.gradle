@@ -3,13 +3,10 @@ plugins {
 	id 'org.springframework.boot' version '4.0.7'
 	id 'io.spring.dependency-management' version '1.1.7'
 	id 'org.hibernate.orm' version '7.2.19.Final'
-	
 }
 
 group = 'com.erplancers'
 version = '0.0.1-SNAPSHOT'
-
-
 
 repositories {
 	// Resolve SnakeYAML from its Maven POM, not the Gradle module metadata that
@@ -31,12 +28,13 @@ repositories {
 // Keep Spring Boot's Logback logging backend as the sole SLF4J provider.
 // Spark's log4j-slf4j2-impl conflicts with Boot's log4j-to-slf4j bridge.
 
-
-
 dependencies {
-	// Analytics is compiled and packaged directly as part of the ERP backend.
-
-	// Source: https://mvnrepository.com/artifact/org.webjars/bootstrap
+	implementation('com.github.javafaker:javafaker:1.0.2') {
+		exclude group: 'org.yaml', module: 'snakeyaml'
+	}
+	// Artifact-only notation bypasses the upstream Gradle module metadata's
+	// unavailable Android classifier and resolves the ordinary JVM JAR.
+	implementation 'org.yaml:snakeyaml:2.4@jar'
 	implementation 'org.webjars:bootstrap:5.3.8'
 	implementation 'org.springframework.kafka:spring-kafka'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
@@ -69,20 +67,16 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-batch-jdbc-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-batch-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
-
-
 	testImplementation 'org.springframework.boot:spring-boot-starter-quartz-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-websocket-test'
 	testImplementation 'org.springframework.security:spring-security-test'
-
 	runtimeOnly 'com.h2database:h2'
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'
 }
-
 
 hibernate {
 	enhancement {

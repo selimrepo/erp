@@ -9,6 +9,8 @@ import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
@@ -126,6 +128,15 @@ public class RestCrudController {
             @PathVariable Long id) {
         requireDelete(authentication, slug);
         service.delete(slug, id);
+    }
+
+    @ExceptionHandler({InvalidDataAccessApiUsageException.class, DataIntegrityViolationException.class, IllegalStateException.class})
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Map<String, Object> handleDomainConflict(RuntimeException exception) {
+        Throwable root = exception;
+        while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+        String message = root.getMessage() == null ? exception.getMessage() : root.getMessage();
+        return Map.of("error", "domain_conflict", "message", message == null ? "The requested change violates a domain invariant" : message);
     }
 
     private ResourceDto toDto(String slug, Map<String, Object> row) {

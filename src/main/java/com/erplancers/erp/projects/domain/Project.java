@@ -18,6 +18,7 @@ import lombok.*;
 import java.util.Set;
 
 @Entity
+@EntityListeners(ProjectLifecycleListener.class)
 @NoArgsConstructor
 @Getter
 @Setter
@@ -25,18 +26,21 @@ import java.util.Set;
 
 public class Project extends EntityBase {
     
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Product> products;
     String name;
+    @Column(length = 24, nullable = false) private String status = "PLANNED";
     String description;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     Location location;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     Customer customer;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<ProductDiscount> productDiscounts;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Assignment> assignments;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<ProjectTask> projectTasks;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Transient private boolean transitionValidated;
 }

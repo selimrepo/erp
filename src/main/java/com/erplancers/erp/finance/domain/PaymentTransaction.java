@@ -1,33 +1,39 @@
 package com.erplancers.erp.finance.domain;
 
 import com.erplancers.erp.common.domain.EntityBase;
-
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Entity;
-import jakarta.persistence.ManyToOne;
+import com.erplancers.erp.crm.contact.domain.Contact;
 import jakarta.persistence.*;
-
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.*;
+import lombok.Setter;
+import java.time.LocalDate;
 
-@Entity
-@NoArgsConstructor
-@Getter
-@Setter
-@Table
-
+@Entity @EntityListeners(PaymentTransactionLifecycleListener.class) @NoArgsConstructor @Getter @Setter
+@Table(uniqueConstraints = @UniqueConstraint(name = "uk_payment_idempotency", columnNames = "idempotency_key"))
 public class PaymentTransaction extends EntityBase {
-    
-    String status;
-    String description;
-    String data;
-    String referenceId;
-    Long amount;
-    Long quantity;
-    Long payment;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
-    Currency currency;
-    @Enumerated(EnumType.STRING)
-    PaymentTransactionDirection paymentTransactionDirection;
+    private String status;
+    private LocalDate paymentDate;
+    private String description;
+    private String data;
+    private String referenceId;
+    private Long amount;
+    private Long quantity;
+    private Long payment;
+    @Column(name = "idempotency_key", length = 180) private String idempotencyKey;
+    @Column(name = "idempotency_payload_hash", length = 64) private String idempotencyPayloadHash;
+    @ManyToOne(fetch = FetchType.LAZY) private Currency currency;
+    @ManyToOne(fetch = FetchType.LAZY) private Invoice invoice;
+    @ManyToOne(fetch = FetchType.LAZY) private Contact contact;
+    @ManyToOne(fetch = FetchType.LAZY) private com.erplancers.erp.accounting.domain.JournalEntry ledgerJournalEntry;
+    @Enumerated(EnumType.STRING) private PaymentTransactionDirection paymentTransactionDirection;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Transient private String persistedFinancialFingerprint;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Transient private String persistedPaymentStatus;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Transient private Long persistedLedgerJournalEntryId;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Transient private boolean ledgerPostingValidated;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Transient private boolean settlementValidated;
 }

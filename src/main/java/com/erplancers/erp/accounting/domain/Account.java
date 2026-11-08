@@ -22,7 +22,7 @@ public class Account extends EntityBase {
     Account accountParent;
     @ManyToOne
     Contact contact;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Account> accountChildren;
     @Enumerated(EnumType.STRING)
     private AccountType accountType;

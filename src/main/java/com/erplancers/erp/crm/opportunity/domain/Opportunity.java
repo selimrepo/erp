@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.util.Set;
 
 @Entity
+@EntityListeners(OpportunityLifecycleListener.class)
 @NoArgsConstructor
 @Getter
 @Setter
@@ -25,13 +26,16 @@ import java.util.Set;
 
 public class Opportunity extends EntityBase {
     String name;
+    @Column(length = 24, nullable = false) private String status = "NEW";
     LocalDate date;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Campaign> campaigns;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Lead> leads;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Product> products;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Project> projects;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Transient private boolean transitionValidated;
 }

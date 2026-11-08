@@ -1,45 +1,37 @@
 package com.erplancers.erp.sales.order.domain;
 
 import com.erplancers.erp.common.domain.EntityBase;
-
 import com.erplancers.erp.crm.contact.domain.Contact;
 import com.erplancers.erp.crm.customer.domain.Customer;
 import com.erplancers.erp.finance.domain.Currency;
 import com.erplancers.erp.finance.domain.Invoice;
 import com.erplancers.erp.sales.pricing.domain.Coupon;
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Entity;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.*;
-
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.*;
-
+import lombok.Setter;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 @Entity
-@NoArgsConstructor
-@Getter
-@Setter
-@Table(name = "erporder")
-
+@EntityListeners(OrderLifecycleListener.class)
+@NoArgsConstructor @Getter @Setter
+@Table(name = "erporder", uniqueConstraints = @UniqueConstraint(name = "uk_erporder_idempotency", columnNames = "idempotency_key"))
 public class Order extends EntityBase {
-    
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
-    Invoice invoice;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
-    Customer customer;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
-    Contact shippingContact;
-    String comment;
-    Long totalAmount;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
-    Currency currency;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
-    Set<Coupon> coupons;
-    @Enumerated(EnumType.STRING)
-    OrderStatus orderStatus;
-
-
+    @ManyToOne(fetch = FetchType.LAZY) private Invoice invoice;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) private Customer customer;
+    @ManyToOne(fetch = FetchType.LAZY) private Contact shippingContact;
+    private String comment;
+    private Long totalAmount;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) private Currency currency;
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, mappedBy = "order")
+    private Set<OrderLine> lines = new LinkedHashSet<>();
+    @OneToMany(cascade = CascadeType.ALL, fetch = FetchType.LAZY) private Set<Coupon> coupons;
+    @Enumerated(EnumType.STRING) private OrderStatus orderStatus;
+    @Column(name = "idempotency_key", length = 180) private String idempotencyKey;
+    @Column(name = "idempotency_payload_hash", length = 64) private String idempotencyPayloadHash;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Transient private boolean fulfillmentValidated;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Transient private boolean orderCreationValidated;
 }
