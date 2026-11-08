@@ -18,6 +18,7 @@ import lombok.*;
 public class Case extends EntityBase {
     
     String name;
+    @Column(length = 24, nullable = false) String status = "OPEN";
     String description;
     String category;
     String status;
