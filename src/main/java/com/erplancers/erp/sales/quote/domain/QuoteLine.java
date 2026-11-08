@@ -19,4 +19,5 @@ public class QuoteLine extends EntityBase {
     @Column(nullable = false) private Long unitPrice;
     @Column(nullable = false) private Long taxAmount = 0L;
     @Column(nullable = false) private Long lineTotal;
+    
 }
