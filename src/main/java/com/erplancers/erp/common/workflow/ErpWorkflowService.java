@@ -531,6 +531,7 @@ public class ErpWorkflowService {
                 request.companyId(), sourceId, request.entryDate(), request.description(),
                 creditNote ? "REVERSAL" : (sourceType == InvoiceType.SALE ? "SALES" : "PURCHASE"), lines);
         Map<String,Object> posted = postJournal(journal);
+        invoice.setLedgerJournalEntry(required(JournalEntry.class, ((Number) posted.get("journalEntry")).longValue()));
         invoice.setInvoiceStatus(InvoiceStatus.POSTED);
         em.flush();
         return result("invoice", invoiceId, "journalEntry", posted.get("journalEntry"), "eventType", eventType,
