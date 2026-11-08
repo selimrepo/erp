@@ -149,7 +149,10 @@ public class DemoDataSeeder implements ApplicationRunner {
             try {
                 if (field.isAnnotationPresent(ManyToOne.class) || field.isAnnotationPresent(OneToOne.class)) {
                     Class<?> relatedType = field.getType();
-                    Object related = knownEntities.getOrDefault(relatedType, findOne(relatedType));
+                    Object related = knownEntities.get(relatedType);
+                    if (related == null) {
+                        related = findOne(relatedType);
+                    }
                     boolean required = isRequired(field);
                     if (related == null && required) {
                         return false;
@@ -167,7 +170,7 @@ public class DemoDataSeeder implements ApplicationRunner {
                 if (field.isAnnotationPresent(Embedded.class)) {
                     continue;
                 }
-                Object value = fakeValue(field.getName(), field.getType(), index);
+                Object value = fakeValue(field.getName(), field.getType(), index, type);
                 if (value != null || field.getType().isPrimitive()) {
                     field.set(target, value);
                 }
@@ -207,11 +210,13 @@ public class DemoDataSeeder implements ApplicationRunner {
         return null;
     }
 
-    private Object fakeValue(String fieldName, Class<?> type, int index) {
+    private Object fakeValue(String fieldName, Class<?> type, int index, Class<?> ownerType) {
         String name = fieldName.toLowerCase(Locale.ROOT);
         if (type == String.class) {
             if (name.contains("password")) {
-                return passwordEncoder.encode(DEMO_PASSWORD);
+                return ownerType.getSimpleName().equals("ErpUser")
+                        ? passwordEncoder.encode(DEMO_PASSWORD)
+                        : faker.internet().password(12, 20);
             }
             if (name.contains("email")) {
                 return faker.internet().emailAddress();
