@@ -1,147 +1,48 @@
-import { useMemo, useState, type CSSProperties, type FormEvent } from "react";
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { AuthProvider, useAuth } from "../auth";
-import { api } from "../api";
-
-type ModuleConfig = { id: string; title: string; description: string; match: string[] };
-const queryClient = new QueryClient();
-
-export function ModuleApp({ config }: { config: ModuleConfig }) {
-  return <QueryClientProvider client={queryClient}>
-    <AuthProvider><ModuleWorkspace config={config} /></AuthProvider>
-  </QueryClientProvider>;
+import {useMemo,useState,type FormEvent} from "react";
+import {QueryClient,QueryClientProvider,useMutation,useQuery,useQueryClient} from "@tanstack/react-query";
+import {AuthProvider,useAuth} from "../auth";
+import {api} from "../api";
+type Config={id:string;title:string;description:string;match:string[]};
+const client=new QueryClient();
+export function ModuleApp({config}:{config:Config}){return <QueryClientProvider client={client}><AuthProvider><Workspace config={config}/></AuthProvider></QueryClientProvider>}
+function Workspace({config}:{config:Config}){
+ const {credentials}=useAuth(); const [selected,setSelected]=useState("");const [page,setPage]=useState(0);const [search,setSearch]=useState("");const [draft,setDraft]=useState<{id?:string;values:Record<string,string>}|null>(null);
+ if(!credentials)return <Login config={config}/>;
+ const resourcesQ=useQuery({queryKey:["resources"],queryFn:()=>api.resources(credentials)});
+ const catalogQ=useQuery({queryKey:["catalog"],queryFn:()=>api.catalog(credentials)});
+ const dashboardQ=useQuery({queryKey:["dashboard"],queryFn:()=>api.dashboard(credentials)});
+ const resources=useMemo(()=> (resourcesQ.data??[]).filter(r=>config.match.some(m=>`${r.module} ${r.entity} ${r.slug}`.toLowerCase().includes(m))),[resourcesQ.data,config]);
+ const slug=resources.some(r=>r.slug===selected)?selected:resources[0]?.slug??"";
+ const schema=catalogQ.data?.resources.find(r=>r.slug===slug);
+ const rowsQ=useQuery({queryKey:["rows",slug,page],queryFn:()=>api.rows(slug,page,25,credentials),enabled:!!slug});
+ const rows=rowsQ.data?.content??[];
+ const columns=schema?.fields.map(f=>f.name).filter(n=>n.toLowerCase()!=="password")??(rows[0]?Object.keys(rows[0].values??rows[0]).filter(k=>k!=="values"):[]);
+ const qc=useQueryClient();
+ const save=useMutation({mutationFn:(v:{id?:string;values:Record<string,string>})=>v.id?api.update(slug,v.id,v.values,credentials):api.create(slug,v.values,credentials),onSuccess:()=>{setDraft(null);qc.invalidateQueries({queryKey:["rows",slug]});qc.invalidateQueries({queryKey:["dashboard"]})}});
+ const del=useMutation({mutationFn:(id:string)=>api.remove(slug,id,credentials),onSuccess:()=>{qc.invalidateQueries({queryKey:["rows",slug]});qc.invalidateQueries({queryKey:["dashboard"]})}});
+ const openNew=()=>setDraft({values:Object.fromEntries(columns.filter(k=>!["id","createdAt","updatedAt","version"].includes(k)).map(k=>[k,""]))});
+ const openEdit=(row:any)=>{const v=row.values??row;setDraft({id:String(row.id??v.id),values:Object.fromEntries(columns.filter(k=>!["id","createdAt","updatedAt","version"].includes(k)).map(k=>[k,v[k]==null?"":typeof v[k]==="object"?JSON.stringify(v[k]):String(v[k])]))})};
+ const submit=(e:FormEvent)=>{e.preventDefault();if(draft)save.mutate(draft)};
+ const filtered=rows.filter(r=>JSON.stringify(r.values??r).toLowerCase().includes(search.toLowerCase()));
+ return <main style={{minHeight:"100vh",background:"#f4f6fa",color:"#172033",fontFamily:"Inter,system-ui,sans-serif"}}>
+ <header style={{background:"#111c32",color:"white",padding:"20px 28px",display:"flex",justifyContent:"space-between",gap:16,flexWrap:"wrap"}}><div><small style={{letterSpacing:2,color:"#9aacc9"}}>ERPLANCERS · INDEPENDENT MODULE</small><h1 style={{margin:"5px 0"}}>{config.title}</h1><span>{config.description}</span></div><small>{credentials.username}</small></header>
+ <section style={{padding:24,maxWidth:1500,margin:"auto"}}>
+ <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12,marginBottom:18}}><Metric label="Module resources" value={resources.length}/><Metric label="ERP records" value={dashboardQ.data?.totalRecords??0}/><Metric label="ERP modules" value={dashboardQ.data?.moduleCount??0}/></div>
+ <div style={{display:"grid",gridTemplateColumns:"minmax(220px,280px) minmax(0,1fr)",gap:16,alignItems:"start"}}>
+ <aside style={panel}><h3>Resources</h3><input placeholder="Search resources" value={search} onChange={e=>setSearch(e.target.value)} style={input}/>{resources.map(r=><button key={r.slug} onClick={()=>{setSelected(r.slug);setPage(0);setDraft(null)}} style={{...nav,background:slug===r.slug?"#edf3ff":"white"}}><b>{r.entity||r.name}</b><small style={{display:"block",color:"#718096"}}>{r.slug}</small></button>)}</aside>
+ <section style={panel}><div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",flexWrap:"wrap"}}><div><small style={{color:"#718096"}}>{resources.find(r=>r.slug===slug)?.module??config.id}</small><h2 style={{margin:"4px 0"}}>{resources.find(r=>r.slug===slug)?.entity??config.title}</h2><small style={{color:"#718096"}}>{rowsQ.data?.totalElements??0} records</small></div><button style={primary} disabled={!slug||!columns.length} onClick={openNew}>＋ New record</button></div>
+ {draft&&<form onSubmit={submit} style={{background:"#f8faff",padding:14,borderRadius:10,margin:"16px 0"}}><div style={{display:"flex",justifyContent:"space-between"}}><b>{draft.id?"Edit record":"Create record"}</b><button type="button" onClick={()=>setDraft(null)}>Close</button></div><div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:10,marginTop:12}}>{Object.entries(draft.values).map(([k,v])=><label key={k} style={{fontSize:12}}>{k}<input style={input} value={v} onChange={e=>setDraft(d=>d?{...d,values:{...d.values,[k]:e.target.value}}:d)}/></label>)}</div><button style={{...primary,marginTop:12}} disabled={save.isPending}>{save.isPending?"Saving…":"Save"}</button>{save.isError&&<Error message={(save.error as Error).message}/>}</form>}
+ {rowsQ.isPending?<p>Loading…</p>:rowsQ.isError?<Error message={(rowsQ.error as Error).message}/>:!filtered.length?<p>No records found.</p>:<div style={{overflowX:"auto",marginTop:14}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}><thead><tr><th style={th}>Actions</th>{columns.map(c=><th key={c} style={th}>{c}</th>)}</tr></thead><tbody>{filtered.map((row:any,i:number)=>{const v=row.values??row;const id=String(row.id??v.id??i);return <tr key={id}><td style={td}><button onClick={()=>openEdit(row)}>Edit</button> <button disabled={del.isPending} onClick={()=>{if(window.confirm("Delete this record?"))del.mutate(id)}}>Delete</button></td>{columns.map(c=><td key={c} style={td}>{format(v[c])}</td>)}</tr>})}</tbody></table></div>}
+ {del.isError&&<Error message={(del.error as Error).message}/>}<div style={{display:"flex",justifyContent:"space-between",marginTop:16}}><small>{rowsQ.data?.totalElements??0} total · page {page+1}/{Math.max(1,rowsQ.data?.totalPages??1)}</small><span><button disabled={!page} onClick={()=>setPage(p=>p-1)}>Previous</button> <button disabled={!rowsQ.data||page+1>=rowsQ.data.totalPages} onClick={()=>setPage(p=>p+1)}>Next</button></span></div>
+ </section></div></section></main>
 }
-
-function ModuleWorkspace({ config }: { config: ModuleConfig }) {
-  const { credentials } = useAuth();
-  return credentials
-    ? <Workspace config={config} credentials={credentials} />
-    : <ModuleLogin config={config} />;
-}
-
-function Workspace({ config, credentials }: { config: ModuleConfig; credentials: { username: string; password: string } }) {
-  const [selected, setSelected] = useState("");
-  const resourcesQuery = useQuery({ queryKey: ["module-resources", config.id], queryFn: () => api.resources(credentials) });
-  const dashboardQuery = useQuery({ queryKey: ["module-dashboard"], queryFn: () => api.dashboard(credentials) });
-  const resources = useMemo(() => (resourcesQuery.data ?? []).filter(resource => {
-    const value = `${resource.module} ${resource.entity} ${resource.slug}`.toLowerCase();
-    return config.match.some(token => value.includes(token));
-  }), [resourcesQuery.data, config]);
-  const activeSlug = resources.some(resource => resource.slug === selected) ? selected : resources[0]?.slug ?? "";
-  const rowsQuery = useQuery({
-    queryKey: ["module-rows", activeSlug],
-    queryFn: () => api.rows(activeSlug, 0, 50, credentials),
-    enabled: !!activeSlug
-  });
-  const rows = rowsQuery.data?.content ?? [];
-  const columns = rows.length ? Object.keys(rows[0].values ?? rows[0]).filter(key => key !== "values").slice(0, 7) : [];
-
-  return <main style={{ minHeight: "100vh", background: "#f4f6fa", color: "#172033", fontFamily: "Inter,system-ui,sans-serif" }}>
-    <header style={{ background: "#111c32", color: "white", padding: "18px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-      <div>
-        <div style={{ fontSize: 11, letterSpacing: 2, opacity: .7 }}>ERPLANCERS · INDEPENDENT MODULE</div>
-        <h1 style={{ margin: "5px 0", fontSize: 24 }}>{config.title}</h1>
-        <div style={{ opacity: .75, fontSize: 13 }}>{config.description}</div>
-      </div>
-      <span style={{ fontSize: 12, opacity: .8 }}>Signed in · {credentials.username}</span>
-    </header>
-    <section style={{ padding: 24, maxWidth: 1440, margin: "auto" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginBottom: 22 }}>
-        <Metric label="Module resources" value={String(resources.length)} />
-        <Metric label="ERP total records" value={(dashboardQuery.data?.totalRecords ?? 0).toLocaleString()} />
-        <Metric label="ERP modules" value={String(dashboardQuery.data?.moduleCount ?? 0)} />
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,280px) 1fr", gap: 18, alignItems: "start" }}>
-        <aside style={panelStyle}>
-          <h2 style={headingStyle}>Resources</h2>
-          {resources.map(resource => <button key={resource.slug} onClick={() => setSelected(resource.slug)}
-            style={{ ...resourceButton, background: activeSlug === resource.slug ? "#e8efff" : "white", borderColor: activeSlug === resource.slug ? "#7c9ce8" : "#e3e8f0" }}>
-            <strong>{resource.entity || resource.name}</strong><small>{resource.slug}</small>
-          </button>)}
-          {resourcesQuery.isError && <p>{resourcesQuery.error.message}</p>}
-        </aside>
-        <section style={panelStyle}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-            <div>
-              <h2 style={headingStyle}>{resources.find(resource => resource.slug === activeSlug)?.entity ?? config.title}</h2>
-              <p style={{ margin: "4px 0 16px", color: "#68758b", fontSize: 13 }}>Live data from the existing ERP REST API · read-only explorer</p>
-            </div>
-            <span style={{ fontSize: 12, color: "#68758b" }}>{rowsQuery.data?.totalElements ?? 0} records</span>
-          </div>
-          {rowsQuery.isPending ? <p>Loading records…</p>
-            : rowsQuery.isError ? <p style={{ color: "#b42318" }}>{rowsQuery.error.message}</p>
-            : !rows.length ? <p>No records found for this module yet.</p>
-            : <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead><tr>{columns.map(column => <th key={column} style={cellHead}>{column}</th>)}</tr></thead>
-                <tbody>{rows.map((row, index) => {
-                  const data = (row.values ?? row) as Record<string, unknown>;
-                  return <tr key={String(row.id ?? index)}>{columns.map(column =>
-                    <td key={column} style={cellStyle}>{formatValue(data[column])}</td>)}</tr>;
-                })}</tbody>
-              </table>
-            </div>}
-        </section>
-      </div>
-    </section>
-  </main>;
-}
-
-function ModuleLogin({ config }: { config: ModuleConfig }) {
-  const { login } = useAuth();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      const credentials = { username: username.trim(), password };
-      await api.resources(credentials);
-      login(credentials);
-    } catch {
-      setError("Login failed. Check your credentials and API connection.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#111c32", fontFamily: "Inter,system-ui,sans-serif" }}>
-    <form onSubmit={submit} style={{ background: "white", padding: 32, borderRadius: 16, width: "min(420px,calc(100vw - 32px))", boxSizing: "border-box" }}>
-      <div style={{ fontSize: 11, letterSpacing: 2, color: "#68758b" }}>ERPLANCERS · MODULE LOGIN</div>
-      <h1 style={{ margin: "8px 0" }}>{config.title}</h1>
-      <p style={{ color: "#68758b", fontSize: 14 }}>{config.description}</p>
-      <label style={{ display: "block", fontSize: 13, marginTop: 22 }}>Username
-        <input required value={username} onChange={event => setUsername(event.target.value)} style={loginInput} />
-      </label>
-      <label style={{ display: "block", fontSize: 13, marginTop: 14 }}>Password
-        <input required type="password" value={password} onChange={event => setPassword(event.target.value)} style={loginInput} />
-      </label>
-      {error && <p style={{ color: "#b42318", fontSize: 13 }}>{error}</p>}
-      <button disabled={busy} type="submit" style={{ ...buttonStyle, width: "100%", marginTop: 20, opacity: busy ? .6 : 1 }}>
-        {busy ? "Connecting…" : "Sign in"}
-      </button>
-    </form>
-  </main>;
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div style={{ ...panelStyle, padding: 18 }}>
-    <div style={{ fontSize: 12, color: "#68758b" }}>{label}</div>
-    <strong style={{ fontSize: 26, display: "block", marginTop: 7 }}>{value}</strong>
-  </div>;
-}
-function formatValue(value: unknown) {
-  if (value == null) return "—";
-  return typeof value === "object" ? JSON.stringify(value) : String(value);
-}
-const panelStyle: CSSProperties = { background: "white", border: "1px solid #e5eaf1", borderRadius: 12, padding: 18, boxShadow: "0 4px 18px rgba(18,35,64,.04)" };
-const headingStyle: CSSProperties = { fontSize: 17, margin: "0 0 14px" };
-const buttonStyle: CSSProperties = { border: 0, borderRadius: 8, padding: "10px 14px", background: "#293b5d", color: "white", cursor: "pointer" };
-const resourceButton: CSSProperties = { display: "block", width: "100%", textAlign: "left", border: "1px solid", borderRadius: 8, padding: 11, marginBottom: 8, cursor: "pointer", color: "#172033" };
-const cellHead: CSSProperties = { textAlign: "left", padding: 10, borderBottom: "1px solid #e5eaf1", color: "#68758b", whiteSpace: "nowrap" };
-const cellStyle: CSSProperties = { padding: 10, borderBottom: "1px solid #edf0f5", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
-const loginInput: CSSProperties = { display: "block", width: "100%", boxSizing: "border-box", padding: 12, border: "1px solid #d6dce6", borderRadius: 8, marginTop: 6, fontSize: 15 };
+function Login({config}:{config:Config}){const{login}=useAuth();const[u,setU]=useState("");const[p,setP]=useState("");const[e,setE]=useState("");const[b,setB]=useState(false);async function submit(ev:FormEvent){ev.preventDefault();setB(true);setE("");try{const c={username:u.trim(),password:p};await api.resources(c);login(c)}catch{setE("Login failed. Check credentials and API connection.")}finally{setB(false)}}return <main style={{minHeight:"100vh",display:"grid",placeItems:"center",background:"#111c32",fontFamily:"Inter,system-ui"}}><form onSubmit={submit} style={{background:"white",padding:30,borderRadius:14,width:"min(400px,90vw)"}}><small>ERPLANCERS · MODULE LOGIN</small><h1>{config.title}</h1><p>{config.description}</p><input required placeholder="Username" value={u} onChange={e=>setU(e.target.value)} style={input}/><input required type="password" placeholder="Password" value={p} onChange={e=>setP(e.target.value)} style={{...input,marginTop:10}}/>{e&&<Error message={e}/>}<button disabled={b} style={{...primary,width:"100%",marginTop:14}}>{b?"Connecting…":"Sign in"}</button></form></main>}
+function Metric({label,value}:{label:string;value:unknown}){return <div style={panel}><small>{label}</small><h2>{Number(value).toLocaleString()}</h2></div>}
+function Error({message}:{message:string}){return <p role="alert" style={{color:"#b42318"}}>{message}</p>}
+function format(v:unknown){return v==null?"—":typeof v==="object"?JSON.stringify(v):String(v)}
+const panel={background:"white",border:"1px solid #e5eaf1",borderRadius:12,padding:16,boxShadow:"0 4px 18px #12234008"};
+const input={display:"block",width:"100%",boxSizing:"border-box" as const,padding:10,border:"1px solid #d6dce6",borderRadius:7,marginTop:6};
+const nav={display:"block",width:"100%",textAlign:"left" as const,padding:10,marginTop:7,border:"1px solid #e5eaf1",borderRadius:8,cursor:"pointer"};
+const primary={background:"#293b5d",color:"white",border:0,borderRadius:8,padding:"10px 14px",cursor:"pointer"};
+const th={textAlign:"left" as const,padding:9,borderBottom:"1px solid #e5eaf1",whiteSpace:"nowrap" as const};
+const td={padding:9,borderBottom:"1px solid #edf0f5",whiteSpace:"nowrap" as const,maxWidth:260,overflow:"hidden",textOverflow:"ellipsis" as const};
