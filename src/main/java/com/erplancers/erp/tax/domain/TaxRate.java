@@ -16,6 +16,7 @@ import lombok.*;
 import java.util.Set;
 
 @Entity
+@EntityListeners(TaxRateLifecycleListener.class)
 @NoArgsConstructor
 @Getter
 @Setter
