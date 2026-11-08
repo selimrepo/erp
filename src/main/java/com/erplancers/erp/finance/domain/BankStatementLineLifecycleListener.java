@@ -15,10 +15,15 @@ public class BankStatementLineLifecycleListener {
     public void capture(BankStatementLine line) {
         line.setPersistedMatchedPaymentId(line.getMatchedPayment() == null ? null : line.getMatchedPayment().getId());
         line.setPersistedReconciliationFingerprint(fingerprint(line));
+        line.setImportValidated(false);
     }
 
     @PrePersist
-    public void validateInsert(BankStatementLine line) { validate(line); }
+    public void validateInsert(BankStatementLine line) {
+        if (!line.isImportValidated())
+            throw new IllegalStateException("Bank statement lines can only be created by statement import");
+        validate(line);
+    }
 
     @PreUpdate
     public void validateUpdate(BankStatementLine line) {
