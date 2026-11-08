@@ -69,7 +69,7 @@ public class ErpWorkflowService {
             long lineTotal = Math.addExact(netAmount, tax.amount());
             total = Math.addExact(total, lineTotal);
             totalTax = Math.addExact(totalTax, tax.amount());
-            stock.setQuantity(available - input.quantity());
+            stock.setStockAdjustmentValidated(true); stock.setQuantity(available - input.quantity());
             OrderLine line = new OrderLine(); line.setOrder(order); line.setProduct(product);
             line.setQuantity(input.quantity()); line.setUnitPrice(input.unitPrice()); line.setTaxRate(tax.rate()); line.setTaxAmount(tax.amount()); line.setLineTotal(lineTotal);
             order.getLines().add(line);
@@ -121,6 +121,7 @@ public class ErpWorkflowService {
         quote.setConvertedOrder(order);
         quote.setConversionIdempotencyKey(request.idempotencyKey());
         quote.setConversionPayloadHash(conversionHash);
+        quote.setConversionValidated(true);
         quote.setStatus("CONVERTED");
         em.flush();
         return result("quote", quoteId, "order", order.getId(), "invoiceId", created.get("invoiceId"),
@@ -217,9 +218,11 @@ public class ErpWorkflowService {
             long nextReceived = Math.addExact(alreadyReceived, entry.getValue());
             if (entry.getValue() <= 0 || nextReceived > detail.getQuantity())
                 throw new IllegalArgumentException("Receipt quantity exceeds outstanding quantity for purchase detail " + detail.getId());
+            detail.setReceiptValidated(true);
             detail.setReceivedQuantity(nextReceived);
             ProductStockLocation stock = stockForUpdateOrCreate(detail.getProduct(), store);
             long onHand = stock.getQuantity() == null ? 0L : stock.getQuantity();
+            stock.setStockAdjustmentValidated(true);
             stock.setQuantity(Math.addExact(onHand, entry.getValue()));
             movement(detail.getProduct(), store, entry.getValue(), "PURCHASE_RECEIPT", "PURCHASE", purchaseId.toString(),
                     idempotencyKey + ":receipt:" + detail.getId());
@@ -232,6 +235,7 @@ public class ErpWorkflowService {
         }
         boolean fullyReceived = purchase.getPurchaseDetails().stream().allMatch(d ->
                 (d.getReceivedQuantity() == null ? 0L : d.getReceivedQuantity()) >= d.getQuantity());
+        purchase.setReceiptValidated(true);
         purchase.setStatus(fullyReceived ? "RECEIVED" : "PARTIALLY_RECEIVED");
         purchase.setReceiptIdempotencyKey(idempotencyKey);
         if (fullyReceived && purchase.getInvoice() == null) {
@@ -336,11 +340,13 @@ public class ErpWorkflowService {
             } else {
                 ProductStockLocation stock = stockForUpdateOrCreate(reservation.getProduct(), reservation.getStore());
                 long quantity = stock.getQuantity() == null ? 0 : stock.getQuantity();
+                stock.setStockAdjustmentValidated(true);
                 stock.setQuantity(Math.addExact(quantity, reservation.getQuantity()));
                 movement(reservation.getProduct(), reservation.getStore(), reservation.getQuantity(),
                         "SALE_RESERVATION_RELEASE", "ORDER", orderId.toString(), request.idempotencyKey()+":cancel:"+(index++));
             }
         }
+        order.setFulfillmentValidated(true);
         order.setOrderStatus(ship ? OrderStatus.SHIPPED : OrderStatus.CANCELLED);
         em.flush();
         return result("order", orderId, "status", order.getOrderStatus().name(), "idempotentReplay", false);
@@ -380,7 +386,7 @@ public class ErpWorkflowService {
         payment.setCurrency(currency); payment.setAmount(request.amount()); payment.setPayment(request.amount());
         payment.setPaymentTransactionDirection(direction); payment.setStatus("COMPLETED"); payment.setPaymentDate(LocalDate.now()); payment.setReferenceId(request.reference());
         payment.setDescription(request.description()); payment.setIdempotencyKey(request.idempotencyKey()); payment.setIdempotencyPayloadHash(paymentHash);
-        em.persist(payment); invoice.setPaidAmount(Math.addExact(paid,request.amount()));
+        em.persist(payment); invoice.setSettlementValidated(true); invoice.setPaidAmount(Math.addExact(paid,request.amount()));
         long settled = Math.addExact(invoice.getPaidAmount(), credited);
         invoice.setInvoiceStatus(settled >= amount ? (credited > 0 ? InvoiceStatus.SETTLED : InvoiceStatus.PAID)
                 : (credited > 0 ? InvoiceStatus.PARTIALLY_SETTLED : InvoiceStatus.PARTIALLY_PAID));
@@ -436,6 +442,7 @@ public class ErpWorkflowService {
                 } else if (candidates.size() > 1) line.setReconciliationStatus("AMBIGUOUS");
             }
         }
+        statement.setReconciliationValidated(true);
         statement.setStatus(matched == statement.getLines().size() ? "RECONCILED" : (matched > 0 ? "PARTIALLY_RECONCILED" : "IMPORTED"));
         em.flush();
         return result("statement", statement.getId(), "lineCount", statement.getLines().size(),
@@ -466,9 +473,11 @@ public class ErpWorkflowService {
         Long count = em.createQuery("select count(l) from BankStatementLine l where l.matchedPayment.id=:id", Long.class)
                 .setParameter("id", paymentId).getSingleResult();
         if (count > 0) throw new IllegalStateException("Payment has already been reconciled");
+        line.setReconciliationValidated(true);
         line.setMatchedPayment(payment); line.setReconciliationStatus("MATCHED"); line.setReconciledAt(java.time.LocalDateTime.now());
         long unmatched = em.createQuery("select count(l) from BankStatementLine l where l.statement.id=:id and l.matchedPayment is null", Long.class)
                 .setParameter("id", statement.getId()).getSingleResult();
+        statement.setReconciliationValidated(true);
         statement.setStatus(unmatched == 0 ? "RECONCILED" : "PARTIALLY_RECONCILED");
         em.flush();
         return result("line", lineId, "payment", paymentId, "statementStatus", statement.getStatus(), "idempotentReplay", false);
@@ -509,6 +518,7 @@ public class ErpWorkflowService {
         note.setCreditNoteReason(request.reason()); note.setWorkflowKey("credit-note:" + request.idempotencyKey());
         note.setBillingContacts(original.getBillingContacts()); note.setShippingContacts(original.getShippingContacts());
         em.persist(note);
+        original.setSettlementValidated(true);
         original.setCreditedAmount(Math.addExact(credited, request.amount()));
         long totalSettled = Math.addExact(paid, original.getCreditedAmount());
         original.setInvoiceStatus(totalSettled >= amount
@@ -761,6 +771,7 @@ public class ErpWorkflowService {
             line.setJournalEntryStatus(JournalEntryStatus.POSTED); entry.getLines().add(line); em.persist(line);
         }
         em.flush();
+        entry.setPostingValidated(true);
         entry.setStatus(JournalEntryStatus.POSTED);
         em.flush();
         return result("journalEntry",entry.getId(),"debit",debit,"credit",credit,"status","POSTED","idempotentReplay",false);
