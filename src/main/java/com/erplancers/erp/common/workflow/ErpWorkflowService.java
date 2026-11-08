@@ -450,6 +450,8 @@ public class ErpWorkflowService {
         if (amount <= 0) throw new IllegalStateException("Invoice amount must be positive before ledger posting");
         boolean sale = invoice.getInvoiceType() == InvoiceType.SALE || (invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE && invoice.getOriginalInvoice() != null && invoice.getOriginalInvoice().getInvoiceType() == InvoiceType.SALE);
         String entryId = (invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE ? "CN-" : "INV-") + invoiceId;
+        List<JournalEntry> alreadyPosted = em.createQuery("select j from JournalEntry j where j.entryId=:entryId", JournalEntry.class).setParameter("entryId", entryId).setMaxResults(1).getResultList();
+        if (!alreadyPosted.isEmpty()) return result("invoice", invoiceId, "journalEntry", alreadyPosted.get(0).getId(), "idempotentReplay", true);
         JournalPost journal = new JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
                 request.companyId(), entryId, request.entryDate(), request.description(),
                 invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE ? "REVERSAL" : (sale ? "SALES" : "PURCHASE"),
@@ -463,6 +465,78 @@ public class ErpWorkflowService {
     }
 
     @Transactional
+    public Map<String,Object> postInvoiceAutomatically(Long invoiceId, ErpWorkflowRequests.AutoDocumentPosting request) {
+        Invoice invoice = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
+        if (invoice == null) throw new IllegalArgumentException("Invoice not found: " + invoiceId);
+        String sourceId = (invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE ? "CN-" : "INV-") + invoiceId;
+        List<JournalEntry> sourceEntries = em.createQuery("select j from JournalEntry j where j.entryId=:sourceId", JournalEntry.class)
+                .setParameter("sourceId", sourceId).setMaxResults(1).getResultList();
+        if (!sourceEntries.isEmpty()) return result("invoice", invoiceId, "journalEntry", sourceEntries.get(0).getId(), "idempotentReplay", true);
+        if (invoice.getInvoiceStatus() != InvoiceStatus.CONFIRMED)
+            throw new IllegalStateException("Only confirmed, unposted invoices can be posted automatically");
+        String eventType;
+        boolean creditNote = invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE;
+        InvoiceType sourceType = creditNote && invoice.getOriginalInvoice()!=null ? invoice.getOriginalInvoice().getInvoiceType() : invoice.getInvoiceType();
+        if (sourceType == InvoiceType.SALE) eventType = creditNote ? "SALES_CREDIT_NOTE" : "SALES_INVOICE";
+        else if (sourceType == InvoiceType.PURCHASE) eventType = creditNote ? "PURCHASE_CREDIT_NOTE" : "PURCHASE_INVOICE";
+        else throw new IllegalStateException("Unsupported invoice type for account determination");
+        List<AccountDeterminationRule> rules;
+        if (request.companyId() == null) {
+            rules = em.createQuery("select r from AccountDeterminationRule r where r.active=true and r.eventType=:event and r.company is null order by r.priority asc", AccountDeterminationRule.class)
+                    .setParameter("event", eventType).setMaxResults(1).getResultList();
+        } else {
+            rules = em.createQuery("select r from AccountDeterminationRule r where r.active=true and r.eventType=:event and (r.company.id=:company or r.company is null) order by case when r.company.id=:company then 0 else 1 end, r.priority asc", AccountDeterminationRule.class)
+                    .setParameter("event", eventType).setParameter("company", request.companyId()).setMaxResults(1).getResultList();
+        }
+        if (rules.isEmpty()) throw new IllegalStateException("No active account determination rule configured for " + eventType);
+        AccountDeterminationRule rule = rules.get(0);
+        Account debit = rule.getDebitAccount(), credit = rule.getCreditAccount(), tax = rule.getTaxAccount();
+        long gross = invoice.getAmount()==null?0L:invoice.getAmount();
+        long taxAmount = invoice.getTaxAmount()==null?0L:invoice.getTaxAmount();
+        long net = invoice.getNetAmount()==null?gross-taxAmount:invoice.getNetAmount();
+        if (gross <= 0 || net < 0 || taxAmount < 0 || Math.addExact(net,taxAmount)!=gross)
+            throw new IllegalStateException("Invoice net, tax and gross totals are inconsistent");
+        List<ErpWorkflowRequests.JournalLine> lines = new ArrayList<>();
+        if (!creditNote && sourceType == InvoiceType.SALE) {
+            lines.add(new ErpWorkflowRequests.JournalLine(debit.getId(), BigDecimal.valueOf(gross), BigDecimal.ZERO, "Accounts receivable"));
+            lines.add(new ErpWorkflowRequests.JournalLine(credit.getId(), BigDecimal.ZERO, BigDecimal.valueOf(net), "Sales revenue"));
+            if (taxAmount > 0) {
+                if (tax == null) throw new IllegalStateException("Sales tax account is missing from posting rule");
+                lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.ZERO, BigDecimal.valueOf(taxAmount), "Output tax"));
+            }
+        } else if (!creditNote) {
+            lines.add(new ErpWorkflowRequests.JournalLine(debit.getId(), BigDecimal.valueOf(net), BigDecimal.ZERO, "Purchase expense or inventory"));
+            if (taxAmount > 0) {
+                if (tax == null) throw new IllegalStateException("Input tax account is missing from posting rule");
+                lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.valueOf(taxAmount), BigDecimal.ZERO, "Input tax"));
+            }
+            lines.add(new ErpWorkflowRequests.JournalLine(credit.getId(), BigDecimal.ZERO, BigDecimal.valueOf(gross), "Accounts payable"));
+        } else if (sourceType == InvoiceType.SALE) {
+            lines.add(new ErpWorkflowRequests.JournalLine(credit.getId(), BigDecimal.valueOf(net), BigDecimal.ZERO, "Sales returns"));
+            if (taxAmount > 0) {
+                if (tax == null) throw new IllegalStateException("Sales tax account is missing from posting rule");
+                lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.valueOf(taxAmount), BigDecimal.ZERO, "Output tax reversal"));
+            }
+            lines.add(new ErpWorkflowRequests.JournalLine(debit.getId(), BigDecimal.ZERO, BigDecimal.valueOf(gross), "Accounts receivable credit"));
+        } else {
+            lines.add(new ErpWorkflowRequests.JournalLine(credit.getId(), BigDecimal.valueOf(gross), BigDecimal.ZERO, "Accounts payable credit"));
+            lines.add(new ErpWorkflowRequests.JournalLine(debit.getId(), BigDecimal.ZERO, BigDecimal.valueOf(net), "Purchase return"));
+            if (taxAmount > 0) {
+                if (tax == null) throw new IllegalStateException("Input tax account is missing from posting rule");
+                lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.ZERO, BigDecimal.valueOf(taxAmount), "Input tax reversal"));
+            }
+        }
+        JournalPost journal = new JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
+                request.companyId(), sourceId, request.entryDate(), request.description(),
+                creditNote ? "REVERSAL" : (sourceType == InvoiceType.SALE ? "SALES" : "PURCHASE"), lines);
+        Map<String,Object> posted = postJournal(journal);
+        invoice.setInvoiceStatus(InvoiceStatus.POSTED);
+        em.flush();
+        return result("invoice", invoiceId, "journalEntry", posted.get("journalEntry"), "eventType", eventType,
+                "status", "POSTED", "idempotentReplay", posted.get("idempotentReplay"));
+    }
+
+    @Transactional
     public Map<String,Object> postPaymentToLedger(Long paymentId, ErpWorkflowRequests.DocumentPosting request) {
         PaymentTransaction payment = em.find(PaymentTransaction.class, paymentId, LockModeType.PESSIMISTIC_WRITE);
         if (payment == null) throw new IllegalArgumentException("Payment not found: " + paymentId);
@@ -471,6 +545,8 @@ public class ErpWorkflowService {
         long amount = payment.getAmount() == null ? 0L : payment.getAmount();
         if (amount <= 0) throw new IllegalStateException("Payment amount must be positive");
         String entryId = "PAY-" + paymentId;
+        List<JournalEntry> alreadyPosted = em.createQuery("select j from JournalEntry j where j.entryId=:entryId", JournalEntry.class).setParameter("entryId", entryId).setMaxResults(1).getResultList();
+        if (!alreadyPosted.isEmpty()) return result("payment", paymentId, "journalEntry", alreadyPosted.get(0).getId(), "idempotentReplay", true);
         JournalPost journal = new JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
                 request.companyId(), entryId, request.entryDate(), request.description(), "PAYMENT",
                 List.of(new JournalLine(request.debitAccountId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, request.description()),
