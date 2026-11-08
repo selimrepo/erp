@@ -8,7 +8,9 @@ import jakarta.persistence.PreUpdate;
 public class PurchaseLifecycleListener {
     @PrePersist
     public void validateInsert(Purchase purchase) {
-        if (!purchase.isPurchaseCreationValidated() || (!"ORDERED".equals(purchase.getStatus()) && !"DRAFT".equals(purchase.getStatus())))
+        if (!purchase.isPurchaseCreationValidated() || (!"ORDERED".equals(purchase.getStatus()) && !"DRAFT".equals(purchase.getStatus()))
+                || purchase.getIdempotencyKey() == null || purchase.getIdempotencyPayloadHash() == null
+                || !purchase.getIdempotencyPayloadHash().matches("[0-9a-f]{64}"))
             throw new IllegalStateException("Purchases must start as DRAFT or ORDERED");
     }
 
