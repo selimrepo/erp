@@ -8,7 +8,14 @@ public class BankStatementLifecycleListener {
     private static final Set<String> STATES = Set.of("IMPORTED", "PARTIALLY_RECONCILED", "RECONCILED");
 
     @PrePersist
-    public void validateInsert(BankStatement statement) { validate(statement); }
+    public void validateInsert(BankStatement statement) {
+        if (!statement.isImportValidated())
+            throw new IllegalStateException("Bank statements can only be imported through the statement import workflow");
+        validate(statement);
+    }
+
+    @jakarta.persistence.PostPersist
+    public void clearImportAuthorization(BankStatement statement) { statement.setImportValidated(false); }
 
     @PreUpdate
     public void validateUpdate(BankStatement statement) {
