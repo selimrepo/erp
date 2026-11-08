@@ -22,4 +22,5 @@ public class StockMovement extends EntityBase {
     @Column(nullable = false, length = 80) private String referenceId;
     @Column(name = "idempotency_key", nullable = false, length = 180) private String idempotencyKey;
     @Column(nullable = false) private Instant occurredAt;
+    @Transient private boolean movementValidated;
 }
