@@ -10,6 +10,8 @@ import com.erplancers.erp.inventory.stock.domain.*;
 import com.erplancers.erp.inventory.warehouse.domain.Store;
 import com.erplancers.erp.procurement.domain.*;
 import com.erplancers.erp.sales.order.domain.*;
+import com.erplancers.erp.sales.quote.domain.Quote;
+import com.erplancers.erp.sales.quote.domain.QuoteLine;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.TypedQuery;
@@ -72,6 +74,40 @@ public class ErpWorkflowService {
         em.flush();
         return result("order", order.getId(), "invoiceId", order.getInvoice()==null?null:order.getInvoice().getId(),
                 "totalAmount", total, "status", order.getOrderStatus().name(), "idempotentReplay", false);
+    }
+
+    @Transactional
+    public Map<String,Object> convertQuoteToOrder(Long quoteId, ErpWorkflowRequests.QuoteConversion request) {
+        Quote quote = em.find(Quote.class, quoteId, LockModeType.PESSIMISTIC_WRITE);
+        if (quote == null) throw new IllegalArgumentException("Quote not found: " + quoteId);
+        if ("CONVERTED".equals(quote.getStatus())) {
+            if (!Objects.equals(quote.getConversionIdempotencyKey(), request.idempotencyKey()))
+                throw new IllegalStateException("Quote has already been converted");
+            return result("quote", quoteId, "order", quote.getConvertedOrder().getId(), "status", "CONVERTED", "idempotentReplay", true);
+        }
+        if (!"ACCEPTED".equals(quote.getStatus())) throw new IllegalStateException("Only accepted quotes can be converted");
+        if (quote.getValidUntil() != null && quote.getValidUntil().isBefore(LocalDate.now()))
+            throw new IllegalStateException("Quote has expired");
+        if (quote.getContactBilling() == null || quote.getContactShipping() == null || quote.getCurrency() == null)
+            throw new IllegalStateException("Quote requires billing contact, shipping contact and currency");
+        List<Customer> customers = em.createQuery("select c from Customer c where c.contact.id=:contactId", Customer.class)
+                .setParameter("contactId", quote.getContactBilling().getId()).setMaxResults(2).getResultList();
+        if (customers.size() != 1) throw new IllegalStateException("Quote billing contact must resolve to exactly one customer");
+        if (quote.getLines() == null || quote.getLines().isEmpty()) throw new IllegalStateException("Quote has no product lines");
+        List<ErpWorkflowRequests.SalesLine> lines = quote.getLines().stream()
+                .map(line -> new ErpWorkflowRequests.SalesLine(line.getProduct().getId(), line.getQuantity(), line.getUnitPrice()))
+                .toList();
+        ErpWorkflowRequests.SalesOrder orderRequest = new ErpWorkflowRequests.SalesOrder(
+                request.idempotencyKey(), customers.get(0).getId(), quote.getContactShipping().getId(),
+                quote.getCurrency().getId(), request.storeId(), lines, request.comment(), request.createInvoice());
+        Map<String,Object> created = createSalesOrder(orderRequest);
+        Order order = required(Order.class, ((Number) created.get("order")).longValue());
+        quote.setConvertedOrder(order);
+        quote.setConversionIdempotencyKey(request.idempotencyKey());
+        quote.setStatus("CONVERTED");
+        em.flush();
+        return result("quote", quoteId, "order", order.getId(), "invoiceId", created.get("invoiceId"),
+                "status", "CONVERTED", "idempotentReplay", false);
     }
 
     @Transactional
