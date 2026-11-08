@@ -74,7 +74,9 @@ public class ErpWorkflowService {
                 .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
         if (!existing.isEmpty()) return result("purchase", existing.get(0).getId(), "idempotentReplay", true);
         Supplier supplier = required(Supplier.class, request.supplierId());
-        Purchase purchase = new Purchase(); purchase.setSupplier(supplier); purchase.setPurchaseDate(LocalDateTime.now());
+        Store store = required(Store.class, request.storeId());
+        Currency currency = required(Currency.class, request.currencyId());
+        Purchase purchase = new Purchase(); purchase.setSupplier(supplier); purchase.setStore(store); purchase.setCurrency(currency); purchase.setPurchaseDate(LocalDateTime.now());
         purchase.setStatus("ORDERED"); purchase.setIdempotencyKey(request.idempotencyKey()); purchase.setTotalAmount(0L);
         em.persist(purchase); em.flush();
         long total=0;
@@ -91,9 +93,16 @@ public class ErpWorkflowService {
 
     @Transactional
     public Map<String,Object> receivePurchase(Long purchaseId, ErpWorkflowRequests.ReceivePurchase request, Long storeId) {
-        Purchase purchase = required(Purchase.class, purchaseId);
-        if ("RECEIVED".equals(purchase.getStatus())) return result("purchase", purchaseId, "status", "RECEIVED", "idempotentReplay", true);
-        Store store = required(Store.class, storeId);
+        Purchase purchase = em.find(Purchase.class, purchaseId, LockModeType.PESSIMISTIC_WRITE);
+        if (purchase == null) throw new IllegalArgumentException("Purchase not found: " + purchaseId);
+        if ("RECEIVED".equals(purchase.getStatus())) {
+            if (Objects.equals(purchase.getReceiptIdempotencyKey(), request.idempotencyKey()))
+                return result("purchase", purchaseId, "status", "RECEIVED", "invoiceId", purchase.getInvoice()==null?null:purchase.getInvoice().getId(), "idempotentReplay", true);
+            throw new IllegalStateException("Purchase has already been received");
+        }
+        if (purchase.getStore()==null || !Objects.equals(purchase.getStore().getId(),storeId))
+            throw new IllegalArgumentException("Receipt warehouse must match the purchase warehouse");
+        Store store = purchase.getStore();
         if (purchase.getPurchaseDetails().isEmpty()) throw new IllegalStateException("Purchase has no detail lines");
         int index=0;
         for (PurchaseDetail detail : purchase.getPurchaseDetails()) {
@@ -105,8 +114,16 @@ public class ErpWorkflowService {
             StockItem item = new StockItem(); item.setProduct(detail.getProduct()); item.setSupplier(purchase.getSupplier());
             item.setStore(store); item.setDateIn(LocalDate.now()); em.persist(item);
         }
+        Invoice invoice = new Invoice(); invoice.setInvoiceName("INV-P-" + purchaseId);
+        invoice.setInvoiceDescription("Supplier invoice for purchase " + purchaseId);
+        invoice.setAmount(purchase.getTotalAmount()); invoice.setPaidAmount(0L);
+        invoice.setCurrency(purchase.getCurrency()); invoice.setInvoiceType(InvoiceType.PURCHASE);
+        invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED); invoice.setWorkflowKey("purchase:" + purchase.getIdempotencyKey());
+        if (purchase.getSupplier().getContact()!=null) invoice.setBillingContacts(Set.of(purchase.getSupplier().getContact()));
+        em.persist(invoice); purchase.setInvoice(invoice);
+        purchase.setReceiptIdempotencyKey(request.idempotencyKey());
         purchase.setStatus("RECEIVED"); purchase.setApprovedDate(LocalDateTime.now()); em.flush();
-        return result("purchase", purchaseId, "status", "RECEIVED", "idempotentReplay", false);
+        return result("purchase", purchaseId, "status", "RECEIVED", "invoiceId", invoice.getId(), "idempotentReplay", false);
     }
 
     @Transactional
@@ -114,7 +131,8 @@ public class ErpWorkflowService {
         List<PaymentTransaction> existing = em.createQuery("select p from PaymentTransaction p where p.idempotencyKey=:key", PaymentTransaction.class)
                 .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
         if (!existing.isEmpty()) return result("payment", existing.get(0).getId(), "idempotentReplay", true);
-        Invoice invoice = required(Invoice.class, invoiceId);
+        Invoice invoice = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
+        if (invoice == null) throw new IllegalArgumentException("Invoice not found: " + invoiceId);
         if (invoice.getInvoiceStatus()==InvoiceStatus.CANCELLED || invoice.getInvoiceStatus()==InvoiceStatus.DRAFT)
             throw new IllegalStateException("Only confirmed or posted invoices can be settled");
         long amount = invoice.getAmount()==null?0:invoice.getAmount();
@@ -145,6 +163,13 @@ public class ErpWorkflowService {
         if(!existing.isEmpty()) return result("journalEntry",existing.get(0).getId(),"idempotentReplay",true);
         FiscalYear year=required(FiscalYear.class,request.fiscalYearId());
         FiscalPeriod period=required(FiscalPeriod.class,request.fiscalPeriodId());
+        if (year.isClosed() || period.isClosed()) throw new IllegalStateException("Cannot post into a closed fiscal year or period");
+        if (period.getFiscalYear()==null || !Objects.equals(period.getFiscalYear().getId(),year.getId()))
+            throw new IllegalArgumentException("Fiscal period does not belong to the selected fiscal year");
+        if (request.entryDate().isBefore(year.getStartDate()) || request.entryDate().isAfter(year.getEndDate())
+                || request.entryDate().isBefore(period.getStartDate()) || request.entryDate().isAfter(period.getEndDate()))
+            throw new IllegalArgumentException("Journal date is outside the selected fiscal period");
+        if (request.lines().size()<2) throw new IllegalArgumentException("A posted journal requires at least two lines");
         if(request.companyId()!=null) required(Contact.class,request.companyId());
         BigDecimal debit=BigDecimal.ZERO,credit=BigDecimal.ZERO;
         for(var line:request.lines()) {
