@@ -304,8 +304,13 @@ class ApiSecurityIntegrationTest {
                         .content("""
                                 {"values":{"status":"SETTLED","amount":"150"}}
                                 """))
+                .andExpect(status().isConflict());
+
+        mvc.perform(get("/api/resources/payment-transaction/" + id)
+                        .with(httpBasic("admin", "admin-pass")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.values.status", is("SETTLED")));
+                .andExpect(jsonPath("$.values.status", is("POSTED")))
+                .andExpect(jsonPath("$.values.amount", is(100)));
 
         mvc.perform(patch("/api/resources/payment-transaction/" + id)
                         .with(httpBasic("admin", "admin-pass"))
