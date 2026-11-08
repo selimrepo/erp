@@ -57,6 +57,11 @@ public class ErpWorkflowController {
         require(auth,"order","WRITE"); require(auth,"product-stock-location","WRITE"); require(auth,"stock-movement","WRITE");
         return workflows.transitionSalesOrder(id,request,false);
     }
+    @PostMapping("/inventory/stock-adjustments")
+    public Map<String,Object> adjustStock(Authentication auth,@Valid @RequestBody ErpWorkflowRequests.StockAdjustmentRequest request) {
+        require(auth,"stock-adjustment","WRITE"); require(auth,"product-stock-location","WRITE"); require(auth,"stock-movement","WRITE");
+        return workflows.adjustStock(request);
+    }
     @PostMapping("/procurement/purchases")
     public Map<String,Object> createPurchase(Authentication auth,@Valid @RequestBody ErpWorkflowRequests.PurchaseOrder request) {
         require(auth,"purchase","WRITE"); require(auth,"purchase-detail","WRITE");
