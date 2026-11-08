@@ -30,6 +30,4 @@ public class JournalEntry extends EntityBase {
     @Transient private String persistedPostingFingerprint;
     @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean postingValidated;
-    @com.fasterxml.jackson.annotation.JsonIgnore
-    @Transient private boolean postingValidated;
 }
