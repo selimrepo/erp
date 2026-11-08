@@ -282,7 +282,9 @@ public class ErpWorkflowService {
             throw new IllegalStateException("Only confirmed or posted invoices can be settled");
         long amount = invoice.getAmount()==null?0:invoice.getAmount();
         long paid = invoice.getPaidAmount()==null?0:invoice.getPaidAmount();
-        long outstanding = amount-paid;
+        if (invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE) throw new IllegalStateException("Credit notes cannot receive payments");
+        long credited = invoice.getCreditedAmount()==null?0L:invoice.getCreditedAmount();
+        long outstanding = amount-paid-credited;
         if (request.amount()>outstanding) throw new IllegalArgumentException("Payment exceeds outstanding invoice balance " + outstanding);
         Currency currency=required(Currency.class,request.currencyId());
         if (invoice.getCurrency() == null || !Objects.equals(invoice.getCurrency().getId(), currency.getId()))
@@ -297,10 +299,52 @@ public class ErpWorkflowService {
         payment.setPaymentTransactionDirection(direction); payment.setStatus("COMPLETED"); payment.setReferenceId(request.reference());
         payment.setDescription(request.description()); payment.setIdempotencyKey(request.idempotencyKey());
         em.persist(payment); invoice.setPaidAmount(Math.addExact(paid,request.amount()));
-        invoice.setInvoiceStatus(invoice.getPaidAmount()>=amount?InvoiceStatus.PAID:InvoiceStatus.PARTIALLY_PAID);
+        long settled = Math.addExact(invoice.getPaidAmount(), credited);
+        invoice.setInvoiceStatus(settled >= amount ? (credited > 0 ? InvoiceStatus.SETTLED : InvoiceStatus.PAID)
+                : (credited > 0 ? InvoiceStatus.PARTIALLY_SETTLED : InvoiceStatus.PARTIALLY_PAID));
         em.flush();
         return result("payment",payment.getId(),"invoiceId",invoiceId,"paidAmount",invoice.getPaidAmount(),
                 "outstandingAmount",amount-invoice.getPaidAmount(),"invoiceStatus",invoice.getInvoiceStatus().name(),"idempotentReplay",false);
+    }
+
+    @Transactional
+    public Map<String,Object> createCreditNote(Long invoiceId, ErpWorkflowRequests.CreditNote request) {
+        List<Invoice> prior = em.createQuery("select i from Invoice i where i.workflowKey=:key", Invoice.class)
+                .setParameter("key", "credit-note:" + request.idempotencyKey()).setMaxResults(1).getResultList();
+        if (!prior.isEmpty()) {
+            Invoice note = prior.get(0);
+            if (!Objects.equals(note.getOriginalInvoice().getId(), invoiceId) || !Objects.equals(note.getAmount(), request.amount()))
+                throw new IllegalArgumentException("Credit note idempotency key was reused with a different payload");
+            return result("creditNote", note.getId(), "originalInvoice", invoiceId, "idempotentReplay", true);
+        }
+        Invoice original = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
+        if (original == null) throw new IllegalArgumentException("Invoice not found: " + invoiceId);
+        if (original.getInvoiceType() == InvoiceType.CREDIT_NOTE || original.getInvoiceStatus() == InvoiceStatus.DRAFT
+                || original.getInvoiceStatus() == InvoiceStatus.CANCELLED)
+            throw new IllegalStateException("Credit notes require an active sales or purchase invoice");
+        long amount = original.getAmount() == null ? 0L : original.getAmount();
+        long paid = original.getPaidAmount() == null ? 0L : original.getPaidAmount();
+        long credited = original.getCreditedAmount() == null ? 0L : original.getCreditedAmount();
+        long outstanding = amount - paid - credited;
+        if (request.amount() > outstanding) throw new IllegalArgumentException("Credit note exceeds outstanding invoice balance " + outstanding);
+        Invoice note = new Invoice();
+        note.setInvoiceName("CN-" + original.getId() + "-" + UUID.randomUUID().toString().substring(0, 8));
+        note.setInvoiceDescription("Credit note for invoice " + original.getInvoiceName());
+        note.setAmount(request.amount()); note.setPaidAmount(0L); note.setCreditedAmount(0L);
+        note.setCurrency(original.getCurrency()); note.setInvoiceType(InvoiceType.CREDIT_NOTE);
+        note.setInvoiceStatus(InvoiceStatus.CONFIRMED); note.setOriginalInvoice(original);
+        note.setCreditNoteReason(request.reason()); note.setWorkflowKey("credit-note:" + request.idempotencyKey());
+        note.setBillingContacts(original.getBillingContacts()); note.setShippingContacts(original.getShippingContacts());
+        em.persist(note);
+        original.setCreditedAmount(Math.addExact(credited, request.amount()));
+        long totalSettled = Math.addExact(paid, original.getCreditedAmount());
+        original.setInvoiceStatus(totalSettled >= amount
+                ? (paid > 0 ? InvoiceStatus.SETTLED : InvoiceStatus.CREDITED)
+                : (paid > 0 ? InvoiceStatus.PARTIALLY_SETTLED : InvoiceStatus.PARTIALLY_CREDITED));
+        em.flush();
+        return result("creditNote", note.getId(), "originalInvoice", invoiceId,
+                "creditedAmount", original.getCreditedAmount(), "outstandingAmount", amount-totalSettled,
+                "status", original.getInvoiceStatus().name(), "idempotentReplay", false);
     }
 
     @Transactional
@@ -311,11 +355,11 @@ public class ErpWorkflowService {
             throw new IllegalStateException("Only confirmed invoices can be posted to the ledger");
         long amount = invoice.getAmount() == null ? 0L : invoice.getAmount();
         if (amount <= 0) throw new IllegalStateException("Invoice amount must be positive before ledger posting");
-        boolean sale = invoice.getInvoiceType() == InvoiceType.SALE;
-        String entryId = "INV-" + invoiceId;
+        boolean sale = invoice.getInvoiceType() == InvoiceType.SALE || (invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE && invoice.getOriginalInvoice() != null && invoice.getOriginalInvoice().getInvoiceType() == InvoiceType.SALE);
+        String entryId = (invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE ? "CN-" : "INV-") + invoiceId;
         JournalPost journal = new JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
                 request.companyId(), entryId, request.entryDate(), request.description(),
-                sale ? "SALES" : "PURCHASE",
+                invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE ? "REVERSAL" : (sale ? "SALES" : "PURCHASE"),
                 List.of(new JournalLine(request.debitAccountId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, request.description()),
                         new JournalLine(request.creditAccountId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), request.description())));
         Map<String,Object> posted = postJournal(journal);
