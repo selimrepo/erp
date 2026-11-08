@@ -8,17 +8,18 @@ import jakarta.persistence.PreUpdate;
 public class PurchaseLifecycleListener {
     @PrePersist
     public void validateInsert(Purchase purchase) {
-        if (!"ORDERED".equals(purchase.getStatus()) && !"DRAFT".equals(purchase.getStatus()))
+        if (!purchase.isPurchaseCreationValidated() || (!"ORDERED".equals(purchase.getStatus()) && !"DRAFT".equals(purchase.getStatus())))
             throw new IllegalStateException("Purchases must start as DRAFT or ORDERED");
     }
+
+    @jakarta.persistence.PostPersist
+    public void clearCreationAuthorization(Purchase purchase) { purchase.setPurchaseCreationValidated(false); }
 
     @PreUpdate
     public void validateTransition(Purchase purchase) {
         String previous = purchase.getPersistedWorkflowState();
         String current = purchase.getStatus();
-        if (previous != null && !previous.equals(current)
-                && ("PARTIALLY_RECEIVED".equals(current) || "RECEIVED".equals(current))
-                && !purchase.isReceiptValidated())
+        if (previous != null && !previous.equals(current) && !purchase.isReceiptValidated())
             throw new IllegalStateException("Purchase receipt state can only change through the goods-receipt workflow");
     }
 
