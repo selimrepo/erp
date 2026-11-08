@@ -30,11 +30,16 @@ public class ErpWorkflowService {
     public Map<String,Object> createSalesOrder(ErpWorkflowRequests.SalesOrder request) {
         List<Order> existing = em.createQuery("select o from Order o where o.idempotencyKey=:key", Order.class)
                 .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
-        if (!existing.isEmpty()) return result("order", existing.get(0).getId(), "idempotentReplay", true);
+        if (!existing.isEmpty()) {
+            if (!Objects.equals(existing.get(0).getCustomer().getId(), request.customerId()))
+                throw new IllegalArgumentException("Idempotency key was already used for a different sales order");
+            return result("order", existing.get(0).getId(), "idempotentReplay", true);
+        }
         Customer customer = required(Customer.class, request.customerId());
         Contact contact = required(Contact.class, request.shippingContactId());
         Currency currency = required(Currency.class, request.currencyId());
-        Store store = required(Store.class, request.storeId());
+        Store store = em.find(Store.class, request.storeId(), LockModeType.PESSIMISTIC_WRITE);
+        if (store == null) throw new IllegalArgumentException("Store not found: " + request.storeId());
         Order order = new Order();
         order.setCustomer(customer); order.setShippingContact(contact); order.setCurrency(currency);
         order.setComment(request.comment()); order.setOrderStatus(OrderStatus.PROCESSING);
@@ -73,7 +78,11 @@ public class ErpWorkflowService {
     public Map<String,Object> createPurchase(ErpWorkflowRequests.PurchaseOrder request) {
         List<Purchase> existing = em.createQuery("select p from Purchase p where p.idempotencyKey=:key", Purchase.class)
                 .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
-        if (!existing.isEmpty()) return result("purchase", existing.get(0).getId(), "idempotentReplay", true);
+        if (!existing.isEmpty()) {
+            if (!Objects.equals(existing.get(0).getSupplier().getId(), request.supplierId()))
+                throw new IllegalArgumentException("Idempotency key was already used for a different purchase");
+            return result("purchase", existing.get(0).getId(), "idempotentReplay", true);
+        }
         Supplier supplier = required(Supplier.class, request.supplierId());
         Store store = required(Store.class, request.storeId());
         Currency currency = required(Currency.class, request.currencyId());
@@ -103,7 +112,7 @@ public class ErpWorkflowService {
         }
         if (purchase.getStore()==null || !Objects.equals(purchase.getStore().getId(),storeId))
             throw new IllegalArgumentException("Receipt warehouse must match the purchase warehouse");
-        Store store = purchase.getStore();
+        Store store = em.find(Store.class, purchase.getStore().getId(), LockModeType.PESSIMISTIC_WRITE);
         if (purchase.getPurchaseDetails().isEmpty()) throw new IllegalStateException("Purchase has no detail lines");
         int index=0;
         for (PurchaseDetail detail : purchase.getPurchaseDetails()) {
@@ -131,7 +140,11 @@ public class ErpWorkflowService {
     public Map<String,Object> payInvoice(Long invoiceId, ErpWorkflowRequests.InvoicePayment request) {
         List<PaymentTransaction> existing = em.createQuery("select p from PaymentTransaction p where p.idempotencyKey=:key", PaymentTransaction.class)
                 .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
-        if (!existing.isEmpty()) return result("payment", existing.get(0).getId(), "idempotentReplay", true);
+        if (!existing.isEmpty()) {
+            if (existing.get(0).getInvoice()==null || !Objects.equals(existing.get(0).getInvoice().getId(), invoiceId))
+                throw new IllegalArgumentException("Idempotency key was already used for a different invoice payment");
+            return result("payment", existing.get(0).getId(), "idempotentReplay", true);
+        }
         Invoice invoice = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
         if (invoice == null) throw new IllegalArgumentException("Invoice not found: " + invoiceId);
         if (invoice.getInvoiceStatus()==InvoiceStatus.CANCELLED || invoice.getInvoiceStatus()==InvoiceStatus.DRAFT)
@@ -167,7 +180,8 @@ public class ErpWorkflowService {
         if (year.isClosed() || period.isClosed()) throw new IllegalStateException("Cannot post into a closed fiscal year or period");
         if (period.getFiscalYear()==null || !Objects.equals(period.getFiscalYear().getId(),year.getId()))
             throw new IllegalArgumentException("Fiscal period does not belong to the selected fiscal year");
-        if (request.entryDate().isBefore(year.getStartDate()) || request.entryDate().isAfter(year.getEndDate())
+        if (year.getStartDate()==null || year.getEndDate()==null || period.getStartDate()==null || period.getEndDate()==null
+                || request.entryDate().isBefore(year.getStartDate()) || request.entryDate().isAfter(year.getEndDate())
                 || request.entryDate().isBefore(period.getStartDate()) || request.entryDate().isAfter(period.getEndDate()))
             throw new IllegalArgumentException("Journal date is outside the selected fiscal period");
         if (request.lines().size()<2) throw new IllegalArgumentException("A posted journal requires at least two lines");
@@ -199,12 +213,14 @@ public class ErpWorkflowService {
     }
 
     private ProductStockLocation stockForUpdate(Long productId, Long storeId) {
+        if (em.find(Store.class, storeId, LockModeType.PESSIMISTIC_WRITE)==null) throw new IllegalArgumentException("Store not found: "+storeId);
         List<ProductStockLocation> rows=em.createQuery("select s from ProductStockLocation s where s.product.id=:productId and s.store.id=:storeId order by s.id",ProductStockLocation.class)
                 .setParameter("productId",productId).setParameter("storeId",storeId).setLockMode(LockModeType.PESSIMISTIC_WRITE).setMaxResults(1).getResultList();
         if(rows.isEmpty()) throw new IllegalStateException("No stock balance exists for product "+productId+" in store "+storeId);
         return rows.get(0);
     }
     private ProductStockLocation stockForUpdateOrCreate(Product product, Store store) {
+        if (em.find(Store.class, store.getId(), LockModeType.PESSIMISTIC_WRITE)==null) throw new IllegalArgumentException("Store not found: "+store.getId());
         List<ProductStockLocation> rows=em.createQuery("select s from ProductStockLocation s where s.product.id=:productId and s.store.id=:storeId order by s.id",ProductStockLocation.class)
                 .setParameter("productId",product.getId()).setParameter("storeId",store.getId()).setLockMode(LockModeType.PESSIMISTIC_WRITE).setMaxResults(1).getResultList();
         if(!rows.isEmpty()) return rows.get(0);
