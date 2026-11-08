@@ -41,5 +41,6 @@ public class Project extends EntityBase {
     Set<Assignment> assignments;
     @OneToMany(fetch = FetchType.LAZY)
     Set<ProjectTask> projectTasks;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean transitionValidated;
 }

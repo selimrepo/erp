@@ -24,8 +24,12 @@ public class BankStatementLine extends EntityBase {
     @Column(nullable=false, length=24) private String reconciliationStatus = "UNMATCHED";
     @ManyToOne(fetch=FetchType.LAZY) private PaymentTransaction matchedPayment;
     private LocalDateTime reconciledAt;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean reconciliationValidated;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private Long persistedMatchedPaymentId;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private String persistedReconciliationFingerprint;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean importValidated;
 }

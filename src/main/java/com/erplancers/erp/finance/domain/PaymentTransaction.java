@@ -26,9 +26,14 @@ public class PaymentTransaction extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY) private Contact contact;
     @ManyToOne(fetch = FetchType.LAZY) private com.erplancers.erp.accounting.domain.JournalEntry ledgerJournalEntry;
     @Enumerated(EnumType.STRING) private PaymentTransactionDirection paymentTransactionDirection;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private String persistedFinancialFingerprint;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private String persistedPaymentStatus;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private Long persistedLedgerJournalEntryId;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean ledgerPostingValidated;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean settlementValidated;
 }

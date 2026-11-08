@@ -27,5 +27,6 @@ public class Case extends EntityBase {
     String resolution;
     String state;
     String workLog;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean transitionValidated;
 }

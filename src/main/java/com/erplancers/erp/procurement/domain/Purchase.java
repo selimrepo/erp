@@ -30,6 +30,8 @@ public class Purchase extends EntityBase {
     @Column(name = "receipt_idempotency_key", length = 180) private String receiptIdempotencyKey;
     @OneToMany(mappedBy = "purchase", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<PurchaseDetail> purchaseDetails = new LinkedHashSet<>();
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean receiptValidated;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean purchaseCreationValidated;
 }

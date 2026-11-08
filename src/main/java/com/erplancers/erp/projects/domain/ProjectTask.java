@@ -21,5 +21,6 @@ public class ProjectTask extends EntityBase {
     String name;
     @Column(length = 24, nullable = false) private String status = "TODO";
     String description;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean transitionValidated;
 }

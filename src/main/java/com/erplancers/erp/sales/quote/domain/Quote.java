@@ -64,9 +64,11 @@ public class Quote extends EntityBase {
     @OneToMany(fetch = FetchType.LAZY)
     private Set<Invoice> invoices;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient
     private boolean conversionValidated;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient
     private boolean transitionValidated;
 }

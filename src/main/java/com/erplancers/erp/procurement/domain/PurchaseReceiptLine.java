@@ -14,5 +14,6 @@ public class PurchaseReceiptLine extends EntityBase {
     @ManyToOne(fetch=FetchType.LAZY, optional=false) private PurchaseReceipt receipt;
     @ManyToOne(fetch=FetchType.LAZY, optional=false) private PurchaseDetail purchaseDetail;
     @Column(nullable=false) private Long quantity;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean receiptLineValidated;
 }

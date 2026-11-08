@@ -27,10 +27,16 @@ public class Invoice extends EntityBase {
     @Column(name = "workflow_key", length = 180) private String workflowKey;
     @Enumerated(EnumType.STRING) private InvoiceStatus invoiceStatus;
     @Enumerated(EnumType.STRING) private InvoiceType invoiceType;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private String persistedAmountFingerprint;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private String persistedSettlementFingerprint;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private Long persistedLedgerJournalEntryId;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean ledgerPostingValidated;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean settlementValidated;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean creationValidated;
 }

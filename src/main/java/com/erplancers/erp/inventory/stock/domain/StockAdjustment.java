@@ -21,5 +21,6 @@ public class StockAdjustment extends EntityBase {
     @Column(name="idempotency_key", nullable=false, length=180) private String idempotencyKey;
     @Column(name="payload_hash", nullable=false, length=64) private String payloadHash;
     @Column(name="adjusted_at", nullable=false) private Instant adjustedAt;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean commandValidated;
 }

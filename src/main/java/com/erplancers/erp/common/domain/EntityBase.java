@@ -25,6 +25,7 @@ public class EntityBase {
     @Version
     long version;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient
     private String persistedWorkflowState;
 

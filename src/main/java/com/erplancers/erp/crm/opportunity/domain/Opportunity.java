@@ -36,5 +36,6 @@ public class Opportunity extends EntityBase {
     Set<Product> products;
     @OneToMany(fetch = FetchType.LAZY)
     Set<Project> projects;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean transitionValidated;
 }

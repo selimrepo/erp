@@ -26,7 +26,10 @@ public class JournalEntry extends EntityBase {
     @Column(name = "idempotency_payload_hash", length = 64) private String idempotencyPayloadHash;
     @OneToMany(mappedBy = "journalEntry", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<JournalEntryLine> lines = new LinkedHashSet<>();
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private String persistedPostingFingerprint;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean postingValidated;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean postingValidated;
 }

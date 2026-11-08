@@ -20,5 +20,6 @@ public class PurchaseReceipt extends EntityBase {
     @Column(nullable=false) private LocalDateTime receivedAt;
     @OneToMany(mappedBy="receipt", cascade=CascadeType.ALL, orphanRemoval=true)
     private Set<PurchaseReceiptLine> lines = new LinkedHashSet<>();
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean receiptValidated;
 }
