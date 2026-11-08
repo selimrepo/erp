@@ -1,7 +1,6 @@
-import {useMemo,useState,type FormEvent} from "react";
+import {useState,type FormEvent} from "react";
 import {useMutation,useQuery,useQueryClient} from "@tanstack/react-query";
 import {api,type Credentials} from "../api";
-import type {PageResponse,ResourceInfo} from "../types";
 
 type Props={moduleId:string;credentials:Credentials};
 type Row={id?:number;values?:Record<string,unknown>;[key:string]:unknown};
@@ -18,7 +17,6 @@ export function WorkflowPanel({moduleId,credentials}:Props){
  </section>
 }
 function useRows(slug:string,c:Credentials){return useQuery({queryKey:["workflow-options",slug],queryFn:()=>api.rows(slug,0,100,c),staleTime:30000})}
-function Rows({slug,c}:{slug:string;c:Credentials}){const q=useRows(slug,c);return q.data?.content??[]}
 function Sales({credentials:c}: {credentials:Credentials}){
  const customersQ=useRows("customer",c),contactsQ=useRows("contact",c),currenciesQ=useRows("currency",c),storesQ=useRows("store",c),productsQ=useRows("product",c);
  const [customer,setCustomer]=useState(""),[contact,setContact]=useState(""),[currency,setCurrency]=useState(""),[store,setStore]=useState(""),[product,setProduct]=useState(""),[qty,setQty]=useState("1"),[price,setPrice]=useState("0"),[comment,setComment]=useState("");
