@@ -30,4 +30,5 @@ public class PaymentTransaction extends EntityBase {
     @Transient private String persistedPaymentStatus;
     @Transient private Long persistedLedgerJournalEntryId;
     @Transient private boolean ledgerPostingValidated;
+    @Transient private boolean settlementValidated;
 }
