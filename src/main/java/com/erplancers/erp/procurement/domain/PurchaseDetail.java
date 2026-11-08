@@ -15,4 +15,5 @@ public class PurchaseDetail extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY, optional = false) private Product product;
     private Long price;
     private Long quantity;
+    @Column(nullable = false) private Long receivedQuantity = 0L;
 }
