@@ -13,7 +13,7 @@ public final class ErpWorkflowRequests {
                              @NotNull Long currencyId, @NotNull Long storeId, @NotEmpty List<@Valid SalesLine> lines,
                              String comment, boolean createInvoice) {}
     public record PurchaseLine(@NotNull Long productId, @NotNull @Positive Long quantity, @NotNull @PositiveOrZero Long unitPrice) {}
-    public record PurchaseOrder(@NotBlank String idempotencyKey, @NotNull Long supplierId, @NotNull Long storeId,
+    public record PurchaseOrder(@NotBlank String idempotencyKey, @NotNull Long supplierId, @NotNull Long storeId, @NotNull Long currencyId,
                                 @NotEmpty List<@Valid PurchaseLine> lines, String notes) {}
     public record ReceivePurchase(@NotBlank String idempotencyKey) {}
     public record InvoicePayment(@NotBlank String idempotencyKey, @NotNull @Positive Long amount,
