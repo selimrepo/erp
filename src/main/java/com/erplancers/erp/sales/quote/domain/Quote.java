@@ -44,13 +44,13 @@ public class Quote extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY)
     Contact contactShipping;
     Long numberQuote;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Opportunity> opportunities;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Sale> sales;
     @ManyToOne(fetch = FetchType.LAZY)
     Currency currency;
-    @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @OneToMany(fetch = FetchType.LAZY)
     Set<Invoice> invoices;
 
     @Transient private boolean conversionValidated;
