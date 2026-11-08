@@ -24,8 +24,12 @@ export async function apiFetch<T>(path:string, credentials:Credentials, init:Req
 export const api={
  createSalesOrder:(body:object,c:Credentials)=>apiFetch<any>("/workflows/sales/orders",c,{method:"POST",body:JSON.stringify(body)}),
  createPurchaseOrder:(body:object,c:Credentials)=>apiFetch<any>("/workflows/procurement/purchases",c,{method:"POST",body:JSON.stringify(body)}),
+ shipSalesOrder:(id:number,idempotencyKey:string,c:Credentials)=>apiFetch<any>(`/workflows/sales/orders/${id}/ship`,c,{method:"POST",body:JSON.stringify({idempotencyKey})}),
+ cancelSalesOrder:(id:number,idempotencyKey:string,c:Credentials)=>apiFetch<any>(`/workflows/sales/orders/${id}/cancel`,c,{method:"POST",body:JSON.stringify({idempotencyKey})}),
  receivePurchase:(id:number,storeId:number,idempotencyKey:string,c:Credentials)=>apiFetch<any>(`/workflows/procurement/purchases/${id}/receive?storeId=${storeId}`,c,{method:"POST",body:JSON.stringify({idempotencyKey})}),
  payInvoice:(id:number,body:object,c:Credentials)=>apiFetch<any>(`/workflows/finance/invoices/${id}/payments`,c,{method:"POST",body:JSON.stringify(body)}),
+ postInvoiceToLedger:(id:number,body:object,c:Credentials)=>apiFetch<any>(`/workflows/finance/invoices/${id}/post`,c,{method:"POST",body:JSON.stringify(body)}),
+ postPaymentToLedger:(id:number,body:object,c:Credentials)=>apiFetch<any>(`/workflows/finance/payments/${id}/post`,c,{method:"POST",body:JSON.stringify(body)}),
  postJournal:(body:object,c:Credentials)=>apiFetch<any>("/workflows/accounting/journals",c,{method:"POST",body:JSON.stringify(body)}),
  resources:(c:Credentials)=>apiFetch<ResourceInfo[]>("/resources",c),
  registerAdmin:(body:{username:string;password:string;adminToken:string})=>fetch(API_BASE+"/auth/register-admin",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify(body)}).then(async r=>{if(!r.ok)throw new Error((await r.text())||`Admin registration failed: ${r.status}`);return r.json();}),
