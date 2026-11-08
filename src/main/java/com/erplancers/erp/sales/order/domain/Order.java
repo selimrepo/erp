@@ -31,4 +31,5 @@ public class Order extends EntityBase {
     @Column(name = "idempotency_key", length = 180) private String idempotencyKey;
     @Column(name = "idempotency_payload_hash", length = 64) private String idempotencyPayloadHash;
     @Transient private boolean fulfillmentValidated;
+    @Transient private boolean orderCreationValidated;
 }
