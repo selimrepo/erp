@@ -20,7 +20,7 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
+
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,7 +36,7 @@ import java.util.*;
  */
 @Component
 @ConditionalOnProperty(prefix = "erp.demo-data", name = "enabled", havingValue = "true")
-@Order(Ordered.LOWEST_PRECEDENCE)
+@org.springframework.core.annotation.Order(Ordered.LOWEST_PRECEDENCE)
 public class DemoBusinessScenarioSeeder implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(DemoBusinessScenarioSeeder.class);
 
@@ -209,7 +209,7 @@ public class DemoBusinessScenarioSeeder implements ApplicationRunner {
                 orders.size(), invoices.size(), products.size(), purchases.size(), payments.size(), journals.size());
     }
 
-    private void persistLine(JournalEntry journal, Account account, Currency currency,
+    private void persistLine(JournalEntry journal, Account account, com.erplancers.erp.finance.domain.Currency currency,
                              FiscalYear year, FiscalPeriod period, LocalDate date,
                              BigDecimal debit, BigDecimal credit, String description) {
         JournalEntryLine line = new JournalEntryLine();
