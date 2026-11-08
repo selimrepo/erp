@@ -13,4 +13,9 @@ public class OrderLineLifecycleListener {
         if (tax < 0 || Math.addExact(net, tax) != line.getLineTotal())
             throw new IllegalStateException("Order line total must equal net plus tax");
     }
+
+    @jakarta.persistence.PreRemove
+    public void preventDelete(OrderLine line) {
+        throw new IllegalStateException("Reserved sales order lines cannot be deleted; cancel the order instead");
+    }
 }
