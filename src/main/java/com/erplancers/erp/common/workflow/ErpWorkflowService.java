@@ -164,6 +164,44 @@ public class ErpWorkflowService {
     }
 
     @Transactional
+    public Map<String,Object> adjustStock(ErpWorkflowRequests.StockAdjustmentRequest request) {
+        if (request.deltaQuantity() == 0 || request.deltaQuantity() == Long.MIN_VALUE)
+            throw new IllegalArgumentException("Stock adjustment delta must be non-zero and within the supported quantity range");
+        String requestHash = hash(request.toString());
+        List<StockAdjustment> existing = em.createQuery(
+                "select a from StockAdjustment a where a.idempotencyKey=:key", StockAdjustment.class)
+                .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
+        if (!existing.isEmpty()) {
+            StockAdjustment prior = existing.get(0);
+            if (!Objects.equals(prior.getPayloadHash(), requestHash))
+                throw new IllegalArgumentException("Stock adjustment idempotency key was reused with a different payload");
+            return result("adjustment", prior.getId(), "product", prior.getProduct().getId(),
+                    "store", prior.getStore().getId(), "deltaQuantity", prior.getDeltaQuantity(), "idempotentReplay", true);
+        }
+        Product product = required(Product.class, request.productId());
+        Store store = em.find(Store.class, request.storeId(), LockModeType.PESSIMISTIC_WRITE);
+        if (store == null) throw new IllegalArgumentException("Store not found: " + request.storeId());
+        ProductStockLocation stock = stockForUpdateOrCreate(product, store);
+        long current = stock.getQuantity() == null ? 0L : stock.getQuantity();
+        long next = Math.addExact(current, request.deltaQuantity());
+        if (next < 0) throw new IllegalStateException("Stock adjustment would make available quantity negative");
+        StockAdjustment adjustment = new StockAdjustment();
+        adjustment.setProduct(product); adjustment.setStore(store); adjustment.setDeltaQuantity(request.deltaQuantity());
+        adjustment.setReason(request.reason().trim()); adjustment.setIdempotencyKey(request.idempotencyKey());
+        adjustment.setPayloadHash(requestHash); adjustment.setAdjustedAt(Instant.now()); adjustment.setCommandValidated(true);
+        em.persist(adjustment); em.flush();
+        stock.setStockAdjustmentValidated(true);
+        stock.setQuantity(next);
+        movement(product, store, Math.abs(request.deltaQuantity()),
+                request.deltaQuantity() > 0 ? "STOCK_ADJUSTMENT_IN" : "STOCK_ADJUSTMENT_OUT",
+                "STOCK_ADJUSTMENT", adjustment.getId().toString(), request.idempotencyKey() + ":movement");
+        em.flush();
+        return result("adjustment", adjustment.getId(), "product", product.getId(), "store", store.getId(),
+                "previousQuantity", current, "deltaQuantity", request.deltaQuantity(), "newQuantity", next,
+                "idempotentReplay", false);
+    }
+
+    @Transactional
     public Map<String,Object> receivePurchase(Long purchaseId, ErpWorkflowRequests.ReceivePurchase request, Long storeId) {
         return receivePurchaseLines(purchaseId, request.idempotencyKey(), null, storeId);
     }
