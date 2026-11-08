@@ -296,7 +296,7 @@ public class ErpWorkflowService {
             throw new IllegalArgumentException("Payment direction does not match invoice type");
         PaymentTransaction payment=new PaymentTransaction(); payment.setInvoice(invoice); payment.setContact(contact);
         payment.setCurrency(currency); payment.setAmount(request.amount()); payment.setPayment(request.amount());
-        payment.setPaymentTransactionDirection(direction); payment.setStatus("COMPLETED"); payment.setReferenceId(request.reference());
+        payment.setPaymentTransactionDirection(direction); payment.setStatus("COMPLETED"); payment.setPaymentDate(LocalDate.now()); payment.setReferenceId(request.reference());
         payment.setDescription(request.description()); payment.setIdempotencyKey(request.idempotencyKey());
         em.persist(payment); invoice.setPaidAmount(Math.addExact(paid,request.amount()));
         long settled = Math.addExact(invoice.getPaidAmount(), credited);
@@ -305,6 +305,91 @@ public class ErpWorkflowService {
         em.flush();
         return result("payment",payment.getId(),"invoiceId",invoiceId,"paidAmount",invoice.getPaidAmount(),
                 "outstandingAmount",amount-invoice.getPaidAmount(),"invoiceStatus",invoice.getInvoiceStatus().name(),"idempotentReplay",false);
+    }
+
+    @Transactional
+    public Map<String,Object> importBankStatement(ErpWorkflowRequests.BankStatementImport request) {
+        List<BankStatement> existing = em.createQuery("select s from BankStatement s where s.idempotencyKey=:key", BankStatement.class)
+                .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
+        if (!existing.isEmpty()) {
+            BankStatement prior = existing.get(0);
+            if (!Objects.equals(prior.getStatementReference(), request.statementReference())
+                    || !Objects.equals(prior.getCurrency().getId(), request.currencyId()))
+                throw new IllegalArgumentException("Bank statement idempotency key was reused with a different statement");
+            return result("statement", prior.getId(), "status", prior.getStatus(), "idempotentReplay", true);
+        }
+        if (request.periodEnd().isBefore(request.periodStart())) throw new IllegalArgumentException("Statement period end precedes start");
+        Currency currency = required(Currency.class, request.currencyId());
+        BankStatement statement = new BankStatement();
+        statement.setIdempotencyKey(request.idempotencyKey()); statement.setStatementReference(request.statementReference());
+        statement.setCurrency(currency); statement.setPeriodStart(request.periodStart()); statement.setPeriodEnd(request.periodEnd());
+        em.persist(statement); em.flush();
+        Set<String> externalIds = new HashSet<>();
+        int matched = 0;
+        for (ErpWorkflowRequests.BankStatementLineInput input : request.lines()) {
+            if (!externalIds.add(input.externalLineId())) throw new IllegalArgumentException("Duplicate external bank line id: " + input.externalLineId());
+            if (input.transactionDate().isBefore(request.periodStart()) || input.transactionDate().isAfter(request.periodEnd()))
+                throw new IllegalArgumentException("Bank line date is outside statement period");
+            if (input.amount() == 0) throw new IllegalArgumentException("Bank statement line amount cannot be zero");
+            BankStatementLine line = new BankStatementLine();
+            line.setStatement(statement); line.setExternalLineId(input.externalLineId()); line.setTransactionDate(input.transactionDate());
+            line.setAmount(input.amount()); line.setReference(input.reference()); line.setDescription(input.description());
+            em.persist(line); statement.getLines().add(line);
+            if (input.reference() != null && !input.reference().isBlank()) {
+                PaymentTransactionDirection direction = input.amount() > 0 ? PaymentTransactionDirection.SALES : PaymentTransactionDirection.PURCHASE;
+                List<PaymentTransaction> candidates = em.createQuery(
+                        "select p from PaymentTransaction p where p.currency.id=:currency and p.amount=:amount and p.referenceId=:reference and p.paymentTransactionDirection=:direction and p.status='COMPLETED' and p.paymentDate between :start and :end",
+                        PaymentTransaction.class).setParameter("currency", currency.getId())
+                        .setParameter("amount", Math.abs(input.amount())).setParameter("reference", input.reference())
+                        .setParameter("direction", direction).setParameter("start", request.periodStart()).setParameter("end", request.periodEnd())
+                        .setLockMode(LockModeType.PESSIMISTIC_WRITE).setMaxResults(2).getResultList();
+                if (candidates.size() == 1) {
+                    Long paymentId = candidates.get(0).getId();
+                    Long alreadyMatched = em.createQuery("select count(l) from BankStatementLine l where l.matchedPayment.id=:id", Long.class)
+                            .setParameter("id", paymentId).getSingleResult();
+                    if (alreadyMatched == 0) {
+                        line.setMatchedPayment(candidates.get(0)); line.setReconciliationStatus("MATCHED");
+                        line.setReconciledAt(java.time.LocalDateTime.now()); matched++;
+                    } else line.setReconciliationStatus("ALREADY_RECONCILED");
+                } else if (candidates.size() > 1) line.setReconciliationStatus("AMBIGUOUS");
+            }
+        }
+        statement.setStatus(matched == statement.getLines().size() ? "RECONCILED" : (matched > 0 ? "PARTIALLY_RECONCILED" : "IMPORTED"));
+        em.flush();
+        return result("statement", statement.getId(), "lineCount", statement.getLines().size(),
+                "matchedCount", matched, "status", statement.getStatus(), "idempotentReplay", false);
+    }
+
+    @Transactional
+    public Map<String,Object> reconcileBankStatementLine(Long lineId, Long paymentId) {
+        BankStatementLine line = em.find(BankStatementLine.class, lineId, LockModeType.PESSIMISTIC_WRITE);
+        if (line == null) throw new IllegalArgumentException("Bank statement line not found: " + lineId);
+        if (line.getMatchedPayment() != null) {
+            if (Objects.equals(line.getMatchedPayment().getId(), paymentId))
+                return result("line", lineId, "payment", paymentId, "idempotentReplay", true);
+            throw new IllegalStateException("Bank statement line is already reconciled");
+        }
+        PaymentTransaction payment = em.find(PaymentTransaction.class, paymentId, LockModeType.PESSIMISTIC_WRITE);
+        if (payment == null) throw new IllegalArgumentException("Payment not found: " + paymentId);
+        BankStatement statement = line.getStatement();
+        long expectedAmount = line.getAmount() > 0 ? line.getAmount() : Math.negateExact(line.getAmount());
+        PaymentTransactionDirection expectedDirection = line.getAmount() > 0 ? PaymentTransactionDirection.SALES : PaymentTransactionDirection.PURCHASE;
+        if (!Objects.equals(payment.getCurrency().getId(), statement.getCurrency().getId())
+                || !Objects.equals(payment.getAmount(), expectedAmount)
+                || payment.getPaymentTransactionDirection() != expectedDirection
+                || !Objects.equals(payment.getReferenceId(), line.getReference())
+                || payment.getPaymentDate() == null || payment.getPaymentDate().isBefore(statement.getPeriodStart())
+                || payment.getPaymentDate().isAfter(statement.getPeriodEnd()))
+            throw new IllegalArgumentException("Payment does not match bank line amount, currency, direction, reference and date");
+        Long count = em.createQuery("select count(l) from BankStatementLine l where l.matchedPayment.id=:id", Long.class)
+                .setParameter("id", paymentId).getSingleResult();
+        if (count > 0) throw new IllegalStateException("Payment has already been reconciled");
+        line.setMatchedPayment(payment); line.setReconciliationStatus("MATCHED"); line.setReconciledAt(java.time.LocalDateTime.now());
+        long unmatched = em.createQuery("select count(l) from BankStatementLine l where l.statement.id=:id and l.matchedPayment is null", Long.class)
+                .setParameter("id", statement.getId()).getSingleResult();
+        statement.setStatus(unmatched <= 1 ? "RECONCILED" : "PARTIALLY_RECONCILED");
+        em.flush();
+        return result("line", lineId, "payment", paymentId, "statementStatus", statement.getStatus(), "idempotentReplay", false);
     }
 
     @Transactional
