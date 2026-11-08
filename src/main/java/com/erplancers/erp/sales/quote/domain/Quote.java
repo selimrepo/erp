@@ -54,4 +54,5 @@ public class Quote extends EntityBase {
     Set<Invoice> invoices;
 
     @Transient private boolean conversionValidated;
+    @Transient private boolean transitionValidated;
 }
