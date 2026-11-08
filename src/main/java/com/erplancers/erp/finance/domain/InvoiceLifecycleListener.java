@@ -12,21 +12,28 @@ public class InvoiceLifecycleListener {
     @PostLoad @PostPersist
     public void capture(Invoice invoice) {
         invoice.setPersistedAmountFingerprint(amountFingerprint(invoice));
+        invoice.setPersistedSettlementFingerprint(settlementFingerprint(invoice));
     }
 
     @PrePersist
     public void validateInsert(Invoice invoice) {
         validate(invoice);
-        if (isSettledState(invoice.getInvoiceStatus()) || invoice.getInvoiceStatus() == InvoiceStatus.POSTED)
-            throw new IllegalStateException("New invoices must be created as DRAFT or CONFIRMED and then processed by workflow commands");
+        if (isSettledState(invoice.getInvoiceStatus()) || invoice.getInvoiceStatus() == InvoiceStatus.POSTED
+                || value(invoice.getPaidAmount()) != 0 || value(invoice.getCreditedAmount()) != 0)
+            throw new IllegalStateException("New invoices must be created unsettled as DRAFT or CONFIRMED and then processed by workflow commands");
     }
 
     @PreUpdate
     public void validateUpdate(Invoice invoice) {
         validate(invoice);
         if (invoice.getPersistedAmountFingerprint() != null
-                && !Objects.equals(invoice.getPersistedAmountFingerprint(), amountFingerprint(invoice)))
+                && !Objects.equals(invoice.getPersistedAmountFingerprint(), amountFingerprint(invoice))
+                && !"DRAFT".equals(invoice.getPersistedWorkflowState()))
             throw new IllegalStateException("Confirmed invoice amount, tax, currency and type are immutable; use a credit note");
+        if (invoice.getPersistedSettlementFingerprint() != null
+                && !Objects.equals(invoice.getPersistedSettlementFingerprint(), settlementFingerprint(invoice))
+                && !invoice.isSettlementValidated())
+            throw new IllegalStateException("Paid and credited balances can only be changed by settlement workflows");
         if (invoice.getPersistedWorkflowState() != null
                 && !Objects.equals(invoice.getPersistedWorkflowState(), invoice.getInvoiceStatus() == null ? null : invoice.getInvoiceStatus().name())
                 && isSettledState(invoice.getInvoiceStatus()) && !invoice.isSettlementValidated())
@@ -38,6 +45,7 @@ public class InvoiceLifecycleListener {
     @PostUpdate
     public void captureAfterUpdate(Invoice invoice) {
         invoice.setPersistedAmountFingerprint(amountFingerprint(invoice));
+        invoice.setPersistedSettlementFingerprint(settlementFingerprint(invoice));
         invoice.setSettlementValidated(false);
     }
 
@@ -85,6 +93,9 @@ public class InvoiceLifecycleListener {
         return String.join("|", String.valueOf(invoice.getAmount()), String.valueOf(invoice.getNetAmount()),
                 String.valueOf(invoice.getTaxAmount()), String.valueOf(invoice.getCurrency() == null ? null : invoice.getCurrency().getId()),
                 String.valueOf(invoice.getInvoiceType()), String.valueOf(invoice.getOriginalInvoice() == null ? null : invoice.getOriginalInvoice().getId()));
+    }
+    private String settlementFingerprint(Invoice invoice) {
+        return value(invoice.getPaidAmount()) + "|" + value(invoice.getCreditedAmount());
     }
     private boolean isSettledState(InvoiceStatus status) {
         return status == InvoiceStatus.PARTIALLY_PAID || status == InvoiceStatus.PARTIALLY_CREDITED
