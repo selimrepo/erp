@@ -21,4 +21,6 @@ public class ProductStockLocation extends EntityBase {
     private Long quantity;
     @ManyToMany(fetch = FetchType.LAZY) private Set<Supplier> suppliers;
     @ManyToMany(fetch = FetchType.LAZY) private Set<Manufacturer> manufacturers;
+    @Transient private boolean stockAdjustmentValidated;
+    @Transient private Long persistedQuantity;
 }
