@@ -52,4 +52,5 @@ public class Quote extends EntityBase {
     @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
     Set<Invoice> invoices;
 
+    @Transient private boolean conversionValidated;
 }
