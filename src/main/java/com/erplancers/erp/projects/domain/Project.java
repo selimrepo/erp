@@ -40,4 +40,5 @@ public class Project extends EntityBase {
     Set<Assignment> assignments;
     @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
     Set<ProjectTask> projectTasks;
+    @Transient private boolean transitionValidated;
 }
