@@ -1,24 +1,18 @@
 package com.erplancers.erp.finance.domain;
 
 import com.erplancers.erp.common.domain.EntityBase;
-
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Entity;
-import jakarta.persistence.ManyToOne;
+import com.erplancers.erp.crm.contact.domain.Contact;
 import jakarta.persistence.*;
-
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.*;
+import lombok.Setter;
 
 @Entity
 @NoArgsConstructor
 @Getter
 @Setter
 @Table
-
 public class PaymentTransaction extends EntityBase {
-    
     String status;
     String description;
     String data;
@@ -26,8 +20,16 @@ public class PaymentTransaction extends EntityBase {
     Long amount;
     Long quantity;
     Long payment;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+
+    @ManyToOne(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     Currency currency;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    Invoice invoice;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    Contact contact;
+
     @Enumerated(EnumType.STRING)
     PaymentTransactionDirection paymentTransactionDirection;
 }

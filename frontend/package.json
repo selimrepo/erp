@@ -7,7 +7,15 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:crm": "vite build --config apps/crm/vite.config.ts",
+    "build:sales": "vite build --config apps/sales/vite.config.ts",
+    "build:inventory": "vite build --config apps/inventory/vite.config.ts",
+    "build:finance": "vite build --config apps/finance/vite.config.ts",
+    "build:accounting": "vite build --config apps/accounting/vite.config.ts",
+    "build:procurement": "vite build --config apps/procurement/vite.config.ts",
+    "build:bi": "vite build --config apps/bi/vite.config.ts",
+    "build:modules": "npm run build:crm && npm run build:sales && npm run build:inventory && npm run build:finance && npm run build:accounting && npm run build:procurement && npm run build:bi"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.2",
