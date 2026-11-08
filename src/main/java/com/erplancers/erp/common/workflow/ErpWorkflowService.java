@@ -415,6 +415,18 @@ public class ErpWorkflowService {
         }
         Invoice invoice = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
         if (invoice == null) throw new IllegalArgumentException("Invoice not found: " + invoiceId);
+        // Recheck after acquiring the invoice lock so concurrent retries return the
+        // committed payment instead of racing into the unique idempotency constraint.
+        List<PaymentTransaction> concurrentReplay = em.createQuery(
+                "select p from PaymentTransaction p where p.idempotencyKey=:key", PaymentTransaction.class)
+                .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
+        if (!concurrentReplay.isEmpty()) {
+            PaymentTransaction prior = concurrentReplay.get(0);
+            if (prior.getInvoice() == null || !Objects.equals(prior.getInvoice().getId(), invoiceId)
+                    || !Objects.equals(prior.getIdempotencyPayloadHash(), paymentHash))
+                throw new IllegalArgumentException("Idempotency key was already used with a different payment payload");
+            return result("payment", prior.getId(), "invoiceId", invoiceId, "idempotentReplay", true);
+        }
         if (invoice.getInvoiceStatus()==InvoiceStatus.CANCELLED || invoice.getInvoiceStatus()==InvoiceStatus.DRAFT)
             throw new IllegalStateException("Only confirmed or posted invoices can be settled");
         long amount = invoice.getAmount()==null?0:invoice.getAmount();
@@ -442,7 +454,7 @@ public class ErpWorkflowService {
                 : (credited > 0 ? InvoiceStatus.PARTIALLY_SETTLED : InvoiceStatus.PARTIALLY_PAID));
         em.flush();
         return result("payment",payment.getId(),"invoiceId",invoiceId,"paidAmount",invoice.getPaidAmount(),
-                "outstandingAmount",amount-invoice.getPaidAmount(),"invoiceStatus",invoice.getInvoiceStatus().name(),"idempotentReplay",false);
+                "outstandingAmount",amount-invoice.getPaidAmount()-credited,"invoiceStatus",invoice.getInvoiceStatus().name(),"idempotentReplay",false);
     }
 
     @Transactional
@@ -548,6 +560,17 @@ public class ErpWorkflowService {
         }
         Invoice original = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
         if (original == null) throw new IllegalArgumentException("Invoice not found: " + invoiceId);
+        // The invoice lock serializes credit-note retries for the same source document.
+        List<Invoice> concurrentReplay = em.createQuery("select i from Invoice i where i.workflowKey=:key", Invoice.class)
+                .setParameter("key", "credit-note:" + request.idempotencyKey()).setMaxResults(1).getResultList();
+        if (!concurrentReplay.isEmpty()) {
+            Invoice note = concurrentReplay.get(0);
+            if (note.getOriginalInvoice() == null || !Objects.equals(note.getOriginalInvoice().getId(), invoiceId)
+                    || !Objects.equals(note.getAmount(), request.amount())
+                    || !Objects.equals(note.getCreditNoteReason(), request.reason()))
+                throw new IllegalArgumentException("Credit note idempotency key was reused with a different payload");
+            return result("creditNote", note.getId(), "originalInvoice", invoiceId, "idempotentReplay", true);
+        }
         if (original.getInvoiceType() == InvoiceType.CREDIT_NOTE || original.getInvoiceStatus() == InvoiceStatus.DRAFT
                 || original.getInvoiceStatus() == InvoiceStatus.CANCELLED)
             throw new IllegalStateException("Credit notes require an active sales or purchase invoice");
@@ -889,7 +912,7 @@ public class ErpWorkflowService {
         float percentage = rate.getRate();
         if (!Float.isFinite(percentage) || percentage < 0f || percentage > 100f)
             throw new IllegalStateException("Tax rate must be between 0 and 100 percent");
-        long tax = BigDecimal.valueOf(netAmount).multiply(BigDecimal.valueOf(percentage))
+        long tax = BigDecimal.valueOf(netAmount).multiply(new BigDecimal(Float.toString(percentage)))
                 .divide(BigDecimal.valueOf(100), 0, java.math.RoundingMode.HALF_UP).longValueExact();
         return new TaxCalculation(rate, tax);
     }
