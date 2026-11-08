@@ -813,8 +813,9 @@ public class ErpWorkflowService {
         ProductStockLocation stock=new ProductStockLocation(); stock.setProduct(product); stock.setStore(store); stock.setQuantity(0L); em.persist(stock); return stock;
     }
     private void movement(Product product, Store store, long quantity, String type, String refType, String refId, String key) {
+        String movementKey = key.length() <= 180 ? key : hash(key);
         StockMovement m=new StockMovement(); m.setProduct(product); m.setStore(store); m.setQuantity(quantity); m.setMovementValidated(true);
-        m.setMovementType(type); m.setReferenceType(refType); m.setReferenceId(refId); m.setIdempotencyKey(key); m.setOccurredAt(Instant.now()); em.persist(m);
+        m.setMovementType(type); m.setReferenceType(refType); m.setReferenceId(refId); m.setIdempotencyKey(movementKey); m.setOccurredAt(Instant.now()); em.persist(m);
     }
     private TaxCalculation calculateTax(long netAmount, Long taxRateId, Product product, Customer customer) {
         com.erplancers.erp.tax.domain.TaxRate rate = null;
