@@ -10,6 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 @Entity
+@EntityListeners(BankStatementLifecycleListener.class)
 @Table(name="bank_statement", uniqueConstraints=@UniqueConstraint(name="uk_bank_statement_idempotency", columnNames="idempotency_key"))
 @Getter @Setter @NoArgsConstructor
 public class BankStatement extends EntityBase {
