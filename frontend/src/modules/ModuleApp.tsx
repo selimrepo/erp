@@ -6,8 +6,11 @@ type Config={id:string;title:string;description:string;match:string[]};
 const client=new QueryClient();
 export function ModuleApp({config}:{config:Config}){return <QueryClientProvider client={client}><AuthProvider><Workspace config={config}/></AuthProvider></QueryClientProvider>}
 function Workspace({config}:{config:Config}){
- const {credentials}=useAuth(); const [selected,setSelected]=useState("");const [page,setPage]=useState(0);const [search,setSearch]=useState("");const [draft,setDraft]=useState<{id?:string;values:Record<string,string>}|null>(null);
- if(!credentials)return <Login config={config}/>;
+ const {credentials}=useAuth();
+ return credentials ? <AuthenticatedWorkspace config={config} credentials={credentials}/> : <Login config={config}/>;
+}
+function AuthenticatedWorkspace({config,credentials}:{config:Config;credentials:{username:string;password:string}}){
+ const [selected,setSelected]=useState("");const [page,setPage]=useState(0);const [search,setSearch]=useState("");const [draft,setDraft]=useState<{id?:string;values:Record<string,string>}|null>(null);
  const resourcesQ=useQuery({queryKey:["resources"],queryFn:()=>api.resources(credentials)});
  const catalogQ=useQuery({queryKey:["catalog"],queryFn:()=>api.catalog(credentials)});
  const dashboardQ=useQuery({queryKey:["dashboard"],queryFn:()=>api.dashboard(credentials)});
