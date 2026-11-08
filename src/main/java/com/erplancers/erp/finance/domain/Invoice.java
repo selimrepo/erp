@@ -17,6 +17,8 @@ public class Invoice extends EntityBase {
     @ManyToMany(fetch = FetchType.LAZY) private Set<Contact> shippingContacts;
     @ManyToOne(fetch = FetchType.LAZY) private Currency currency;
     private Long amount;
+    @Column(nullable = false) private Long netAmount = 0L;
+    @Column(nullable = false) private Long taxAmount = 0L;
     private Long paidAmount = 0L;
     @Column(nullable = false) private Long creditedAmount = 0L;
     @ManyToOne(fetch = FetchType.LAZY) private Invoice originalInvoice;
