@@ -8,7 +8,9 @@ import jakarta.persistence.PreUpdate;
 public class OrderLifecycleListener {
     @PrePersist
     public void validateInsert(Order order) {
-        if (!order.isOrderCreationValidated() || order.getOrderStatus() != OrderStatus.PROCESSING)
+        if (!order.isOrderCreationValidated() || order.getOrderStatus() != OrderStatus.PROCESSING
+                || order.getIdempotencyKey() == null || order.getIdempotencyPayloadHash() == null
+                || !order.getIdempotencyPayloadHash().matches("[0-9a-f]{64}"))
             throw new IllegalStateException("Orders must enter the workflow in PROCESSING state");
     }
 
