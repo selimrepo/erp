@@ -13,4 +13,10 @@ public class QuoteLineLifecycleListener {
         if (tax < 0 || Math.addExact(net, tax) != line.getLineTotal())
             throw new IllegalStateException("Quote line total must equal net plus tax");
     }
+
+    @jakarta.persistence.PreRemove
+    public void preventDelete(QuoteLine line) {
+        if (line.getQuote() != null && !"DRAFT".equals(line.getQuote().getStatus()))
+            throw new IllegalStateException("Sent, accepted or converted quote lines cannot be deleted");
+    }
 }
