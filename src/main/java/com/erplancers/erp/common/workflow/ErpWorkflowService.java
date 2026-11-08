@@ -22,6 +22,9 @@ import jakarta.persistence.TypedQuery;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -36,10 +39,13 @@ public class ErpWorkflowService {
     public Map<String,Object> createSalesOrder(ErpWorkflowRequests.SalesOrder request) {
         List<Order> existing = em.createQuery("select o from Order o where o.idempotencyKey=:key", Order.class)
                 .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
+        String requestHash = hash(request.toString());
         if (!existing.isEmpty()) {
-            if (!Objects.equals(existing.get(0).getCustomer().getId(), request.customerId()))
-                throw new IllegalArgumentException("Idempotency key was already used for a different sales order");
-            return result("order", existing.get(0).getId(), "idempotentReplay", true);
+            Order prior = existing.get(0);
+            if (!Objects.equals(prior.getIdempotencyPayloadHash(), requestHash))
+                throw new IllegalArgumentException("Idempotency key was already used with a different or unverifiable sales order payload");
+            return result("order", prior.getId(), "invoiceId", prior.getInvoice()==null?null:prior.getInvoice().getId(),
+                    "totalAmount", prior.getTotalAmount(), "status", prior.getOrderStatus().name(), "idempotentReplay", true);
         }
         Customer customer = required(Customer.class, request.customerId());
         Contact contact = required(Contact.class, request.shippingContactId());
@@ -49,7 +55,7 @@ public class ErpWorkflowService {
         Order order = new Order();
         order.setCustomer(customer); order.setShippingContact(contact); order.setCurrency(currency);
         order.setComment(request.comment()); order.setOrderStatus(OrderStatus.PROCESSING);
-        order.setIdempotencyKey(request.idempotencyKey()); order.setTotalAmount(0L);
+        order.setIdempotencyKey(request.idempotencyKey()); order.setIdempotencyPayloadHash(requestHash); order.setTotalAmount(0L);
         em.persist(order); em.flush();
         long total = 0, totalTax = 0;
         for (int i=0;i<request.lines().size();i++) {
@@ -122,16 +128,18 @@ public class ErpWorkflowService {
     public Map<String,Object> createPurchase(ErpWorkflowRequests.PurchaseOrder request) {
         List<Purchase> existing = em.createQuery("select p from Purchase p where p.idempotencyKey=:key", Purchase.class)
                 .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
+        String requestHash = hash(request.toString());
         if (!existing.isEmpty()) {
-            if (!Objects.equals(existing.get(0).getSupplier().getId(), request.supplierId()))
-                throw new IllegalArgumentException("Idempotency key was already used for a different purchase");
-            return result("purchase", existing.get(0).getId(), "idempotentReplay", true);
+            Purchase prior = existing.get(0);
+            if (!Objects.equals(prior.getIdempotencyPayloadHash(), requestHash))
+                throw new IllegalArgumentException("Idempotency key was already used with a different or unverifiable purchase payload");
+            return result("purchase", prior.getId(), "totalAmount", prior.getTotalAmount(), "status", prior.getStatus(), "idempotentReplay", true);
         }
         Supplier supplier = required(Supplier.class, request.supplierId());
         Store store = required(Store.class, request.storeId());
         Currency currency = required(Currency.class, request.currencyId());
         Purchase purchase = new Purchase(); purchase.setSupplier(supplier); purchase.setStore(store); purchase.setCurrency(currency); purchase.setPurchaseDate(LocalDateTime.now());
-        purchase.setStatus("ORDERED"); purchase.setIdempotencyKey(request.idempotencyKey()); purchase.setTotalAmount(0L);
+        purchase.setStatus("ORDERED"); purchase.setIdempotencyKey(request.idempotencyKey()); purchase.setIdempotencyPayloadHash(requestHash); purchase.setTotalAmount(0L);
         em.persist(purchase); em.flush();
         long total=0, totalTax=0;
         for (ErpWorkflowRequests.PurchaseLine input : request.lines()) {
@@ -160,15 +168,18 @@ public class ErpWorkflowService {
 
     private Map<String,Object> receivePurchaseLines(Long purchaseId, String idempotencyKey,
             List<ErpWorkflowRequests.PurchaseReceiptLineInput> requestedLines, Long storeId) {
+        String receiptPayload = purchaseId + "|" + (requestedLines == null ? "ALL_OUTSTANDING" : requestedLines.toString()) + "|" + storeId;
+        String receiptHash = hash(receiptPayload);
+        Purchase purchase = em.find(Purchase.class, purchaseId, LockModeType.PESSIMISTIC_WRITE);
+        if (purchase == null) throw new IllegalArgumentException("Purchase not found: " + purchaseId);
         List<PurchaseReceipt> previous = em.createQuery("select r from PurchaseReceipt r where r.idempotencyKey=:key", PurchaseReceipt.class)
                 .setParameter("key", idempotencyKey).setMaxResults(1).getResultList();
         if (!previous.isEmpty()) {
-            if (!Objects.equals(previous.get(0).getPurchase().getId(), purchaseId))
-                throw new IllegalArgumentException("Receipt idempotency key belongs to another purchase");
-            return result("purchase", purchaseId, "receipt", previous.get(0).getId(), "status", previous.get(0).getPurchase().getStatus(), "idempotentReplay", true);
+            PurchaseReceipt prior = previous.get(0);
+            if (!Objects.equals(prior.getPurchase().getId(), purchaseId) || !Objects.equals(prior.getPayloadHash(), receiptHash))
+                throw new IllegalArgumentException("Receipt idempotency key was reused for a different receipt payload");
+            return result("purchase", purchaseId, "receipt", prior.getId(), "status", prior.getPurchase().getStatus(), "idempotentReplay", true);
         }
-        Purchase purchase = em.find(Purchase.class, purchaseId, LockModeType.PESSIMISTIC_WRITE);
-        if (purchase == null) throw new IllegalArgumentException("Purchase not found: " + purchaseId);
         if (!Set.of("ORDERED", "PARTIALLY_RECEIVED").contains(purchase.getStatus()))
             throw new IllegalStateException("Only ordered or partially received purchases can receive goods");
         if (purchase.getStore()==null || !Objects.equals(purchase.getStore().getId(),storeId))
@@ -192,7 +203,7 @@ public class ErpWorkflowService {
         if (quantities.isEmpty()) throw new IllegalStateException("There are no outstanding quantities to receive");
 
         PurchaseReceipt receipt = new PurchaseReceipt();
-        receipt.setPurchase(purchase); receipt.setIdempotencyKey(idempotencyKey); receipt.setReceivedAt(LocalDateTime.now());
+        receipt.setPurchase(purchase); receipt.setIdempotencyKey(idempotencyKey); receipt.setPayloadHash(receiptHash); receipt.setReceivedAt(LocalDateTime.now());
         em.persist(receipt);
         long receivedTotal = 0L;
         for (Map.Entry<Long, Long> entry : quantities.entrySet()) {
@@ -317,17 +328,15 @@ public class ErpWorkflowService {
 
     @Transactional
     public Map<String,Object> payInvoice(Long invoiceId, ErpWorkflowRequests.InvoicePayment request) {
+        String paymentHash = hash(invoiceId + "|" + request.toString());
         List<PaymentTransaction> existing = em.createQuery("select p from PaymentTransaction p where p.idempotencyKey=:key", PaymentTransaction.class)
                 .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
         if (!existing.isEmpty()) {
-            if (existing.get(0).getInvoice()==null || !Objects.equals(existing.get(0).getInvoice().getId(), invoiceId))
-                throw new IllegalArgumentException("Idempotency key was already used for a different invoice payment");
             PaymentTransaction prior = existing.get(0);
-            if (!Objects.equals(prior.getAmount(), request.amount())
-                    || !Objects.equals(prior.getCurrency() == null ? null : prior.getCurrency().getId(), request.currencyId())
-                    || prior.getPaymentTransactionDirection() != PaymentTransactionDirection.valueOf(request.direction().toUpperCase(Locale.ROOT)))
-                throw new IllegalArgumentException("Idempotency key was already used with a different payment payload");
-            return result("payment", prior.getId(), "idempotentReplay", true);
+            if (prior.getInvoice()==null || !Objects.equals(prior.getInvoice().getId(), invoiceId)
+                    || !Objects.equals(prior.getIdempotencyPayloadHash(), paymentHash))
+                throw new IllegalArgumentException("Idempotency key was already used with a different or unverifiable payment payload");
+            return result("payment", prior.getId(), "invoiceId", invoiceId, "idempotentReplay", true);
         }
         Invoice invoice = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
         if (invoice == null) throw new IllegalArgumentException("Invoice not found: " + invoiceId);
@@ -350,7 +359,7 @@ public class ErpWorkflowService {
         PaymentTransaction payment=new PaymentTransaction(); payment.setInvoice(invoice); payment.setContact(contact);
         payment.setCurrency(currency); payment.setAmount(request.amount()); payment.setPayment(request.amount());
         payment.setPaymentTransactionDirection(direction); payment.setStatus("COMPLETED"); payment.setPaymentDate(LocalDate.now()); payment.setReferenceId(request.reference());
-        payment.setDescription(request.description()); payment.setIdempotencyKey(request.idempotencyKey());
+        payment.setDescription(request.description()); payment.setIdempotencyKey(request.idempotencyKey()); payment.setIdempotencyPayloadHash(paymentHash);
         em.persist(payment); invoice.setPaidAmount(Math.addExact(paid,request.amount()));
         long settled = Math.addExact(invoice.getPaidAmount(), credited);
         invoice.setInvoiceStatus(settled >= amount ? (credited > 0 ? InvoiceStatus.SETTLED : InvoiceStatus.PAID)
@@ -362,19 +371,19 @@ public class ErpWorkflowService {
 
     @Transactional
     public Map<String,Object> importBankStatement(ErpWorkflowRequests.BankStatementImport request) {
+        String statementHash = hash(request.toString());
         List<BankStatement> existing = em.createQuery("select s from BankStatement s where s.idempotencyKey=:key", BankStatement.class)
                 .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
         if (!existing.isEmpty()) {
             BankStatement prior = existing.get(0);
-            if (!Objects.equals(prior.getStatementReference(), request.statementReference())
-                    || !Objects.equals(prior.getCurrency().getId(), request.currencyId()))
-                throw new IllegalArgumentException("Bank statement idempotency key was reused with a different statement");
+            if (!Objects.equals(prior.getPayloadHash(), statementHash))
+                throw new IllegalArgumentException("Bank statement idempotency key was reused with a different or unverifiable payload");
             return result("statement", prior.getId(), "status", prior.getStatus(), "idempotentReplay", true);
         }
         if (request.periodEnd().isBefore(request.periodStart())) throw new IllegalArgumentException("Statement period end precedes start");
         Currency currency = required(Currency.class, request.currencyId());
         BankStatement statement = new BankStatement();
-        statement.setIdempotencyKey(request.idempotencyKey()); statement.setStatementReference(request.statementReference());
+        statement.setIdempotencyKey(request.idempotencyKey()); statement.setPayloadHash(statementHash); statement.setStatementReference(request.statementReference());
         statement.setCurrency(currency); statement.setPeriodStart(request.periodStart()); statement.setPeriodEnd(request.periodEnd());
         em.persist(statement); em.flush();
         Set<String> externalIds = new HashSet<>();
@@ -451,7 +460,8 @@ public class ErpWorkflowService {
                 .setParameter("key", "credit-note:" + request.idempotencyKey()).setMaxResults(1).getResultList();
         if (!prior.isEmpty()) {
             Invoice note = prior.get(0);
-            if (!Objects.equals(note.getOriginalInvoice().getId(), invoiceId) || !Objects.equals(note.getAmount(), request.amount()))
+            if (note.getOriginalInvoice()==null || !Objects.equals(note.getOriginalInvoice().getId(), invoiceId)
+                    || !Objects.equals(note.getAmount(), request.amount()) || !Objects.equals(note.getCreditNoteReason(), request.reason()))
                 throw new IllegalArgumentException("Credit note idempotency key was reused with a different payload");
             return result("creditNote", note.getId(), "originalInvoice", invoiceId, "idempotentReplay", true);
         }
@@ -678,7 +688,7 @@ public class ErpWorkflowService {
         entry.setFiscalYear(year); entry.setFiscalPeriod(period); entry.setEntryId(request.entryId());
         entry.setEntryDate(request.entryDate()); entry.setDescription(request.description());
         entry.setEntryType(JournalEntryType.valueOf(request.entryType().toUpperCase(Locale.ROOT)));
-        entry.setStatus(JournalEntryStatus.POSTED); entry.setIdempotencyKey(request.idempotencyKey());
+        entry.setStatus(JournalEntryStatus.POSTED); entry.setIdempotencyKey(request.idempotencyKey()); entry.setIdempotencyPayloadHash(journalHash);
         em.persist(entry); em.flush();
         for(var input:request.lines()) {
             JournalEntryLine line=new JournalEntryLine(); line.setJournalEntry(entry); line.setAccount(required(Account.class,input.accountId()));
@@ -742,6 +752,15 @@ public class ErpWorkflowService {
         return new TaxCalculation(rate, tax);
     }
     private record TaxCalculation(com.erplancers.erp.tax.domain.TaxRate rate, long amount) {}
+
+    private String hash(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
+    }
 
     private <T> T required(Class<T> type, Long id) {
         T entity=em.find(type,id); if(entity==null) throw new IllegalArgumentException(type.getSimpleName()+" not found: "+id); return entity;
