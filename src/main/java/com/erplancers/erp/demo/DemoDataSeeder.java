@@ -70,6 +70,10 @@ public class DemoDataSeeder implements ApplicationRunner {
             while (iterator.hasNext()) {
                 EntityType<?> entity = iterator.next();
                 Class<?> type = entity.getJavaType();
+                if (isWorkflowManaged(type)) {
+                    iterator.remove();
+                    continue;
+                }
                 if (countRows(entity) > 0) {
                     iterator.remove();
                     progress = true;
@@ -106,6 +110,12 @@ public class DemoDataSeeder implements ApplicationRunner {
         }
         log.info("Demo data generation completed: {} records inserted across {} JPA entities.",
                 inserted, entities.size() - pending.size());
+    }
+
+    private boolean isWorkflowManaged(Class<?> type) {
+        return Set.of("Order", "OrderLine", "Purchase", "PurchaseDetail", "PurchaseReceipt", "PurchaseReceiptLine",
+                "Invoice", "PaymentTransaction", "JournalEntry", "JournalEntryLine", "StockMovement", "StockAdjustment",
+                "BankStatement", "BankStatementLine", "AccountDeterminationRule").contains(type.getSimpleName());
     }
 
     private long countRows(EntityType<?> entity) {
@@ -216,6 +226,16 @@ public class DemoDataSeeder implements ApplicationRunner {
     private Object fakeValue(String fieldName, Class<?> type, int index, Class<?> ownerType) {
         String name = fieldName.toLowerCase(Locale.ROOT);
         if (type == String.class) {
+            if (name.equals("status")) {
+                return switch (ownerType.getSimpleName()) {
+                    case "Quote" -> "DRAFT";
+                    case "Opportunity" -> "NEW";
+                    case "Project" -> "PLANNED";
+                    case "ProjectTask" -> "TODO";
+                    case "Case" -> "OPEN";
+                    default -> null;
+                };
+            }
             if (name.contains("password")) {
                 return ownerType.getSimpleName().equals("ErpUser")
                         ? passwordEncoder.encode(DEMO_PASSWORD)
@@ -289,6 +309,7 @@ public class DemoDataSeeder implements ApplicationRunner {
             return faker.number().randomDouble(2, 1, 100_000);
         }
         if (type == float.class || type == Float.class) {
+            if (ownerType.getSimpleName().equals("TaxRate") && name.equals("rate")) return 20.0f;
             return (float) faker.number().randomDouble(2, 1, 100_000);
         }
         if (type == short.class || type == Short.class) {
