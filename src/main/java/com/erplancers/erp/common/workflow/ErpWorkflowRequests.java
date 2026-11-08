@@ -27,6 +27,8 @@ public final class ErpWorkflowRequests {
     public record InvoicePayment(@NotBlank String idempotencyKey, @NotNull @Positive Long amount,
                                  @NotNull Long contactId, @NotNull Long currencyId,
                                  @NotNull String direction, String reference, String description) {}
+    public record AutoDocumentPosting(@NotBlank String idempotencyKey, @NotNull Long fiscalYearId, @NotNull Long fiscalPeriodId,
+            Long companyId, @NotNull LocalDate entryDate, @NotBlank String description) {}
     public record DocumentPosting(@NotBlank String idempotencyKey, @NotNull Long fiscalYearId, @NotNull Long fiscalPeriodId,
                                   Long companyId, @NotNull LocalDate entryDate, @NotBlank String description,
                                   @NotNull Long debitAccountId, @NotNull Long creditAccountId) {}
