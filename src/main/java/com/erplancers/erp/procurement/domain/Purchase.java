@@ -23,6 +23,7 @@ public class Purchase extends EntityBase {
     private LocalDateTime purchaseDate;
     private LocalDateTime approvedDate;
     private Long totalAmount;
+    @Column(nullable = false) private Long taxAmount = 0L;
     @Column(length = 24) private String status;
     @Column(name = "idempotency_key", length = 180) private String idempotencyKey;
     @Column(name = "receipt_idempotency_key", length = 180) private String receiptIdempotencyKey;
