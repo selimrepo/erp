@@ -56,6 +56,7 @@ public class ErpWorkflowService {
         order.setCustomer(customer); order.setShippingContact(contact); order.setCurrency(currency);
         order.setComment(request.comment()); order.setOrderStatus(OrderStatus.PROCESSING);
         order.setIdempotencyKey(request.idempotencyKey()); order.setIdempotencyPayloadHash(requestHash); order.setTotalAmount(0L);
+        order.setOrderCreationValidated(true);
         em.persist(order); em.flush();
         long total = 0, totalTax = 0;
         for (int i=0;i<request.lines().size();i++) {
@@ -83,6 +84,7 @@ public class ErpWorkflowService {
             invoice.setNetAmount(total - totalTax); invoice.setTaxAmount(totalTax);
             invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED); invoice.setWorkflowKey("sales:"+request.idempotencyKey());
             invoice.setBillingContacts(Set.of(contact)); invoice.setShippingContacts(Set.of(contact));
+            invoice.setCreationValidated(true);
             em.persist(invoice); order.setInvoice(invoice);
         }
         em.flush();
@@ -144,6 +146,7 @@ public class ErpWorkflowService {
         Currency currency = required(Currency.class, request.currencyId());
         Purchase purchase = new Purchase(); purchase.setSupplier(supplier); purchase.setStore(store); purchase.setCurrency(currency); purchase.setPurchaseDate(LocalDateTime.now());
         purchase.setStatus("ORDERED"); purchase.setIdempotencyKey(request.idempotencyKey()); purchase.setIdempotencyPayloadHash(requestHash); purchase.setTotalAmount(0L);
+        purchase.setPurchaseCreationValidated(true);
         em.persist(purchase); em.flush();
         long total=0, totalTax=0;
         for (ErpWorkflowRequests.PurchaseLine input : request.lines()) {
@@ -208,6 +211,7 @@ public class ErpWorkflowService {
 
         PurchaseReceipt receipt = new PurchaseReceipt();
         receipt.setPurchase(purchase); receipt.setIdempotencyKey(idempotencyKey); receipt.setPayloadHash(receiptHash); receipt.setReceivedAt(LocalDateTime.now());
+        receipt.setReceiptValidated(true);
         em.persist(receipt);
         long receivedTotal = 0L;
         for (Map.Entry<Long, Long> entry : quantities.entrySet()) {
@@ -230,6 +234,7 @@ public class ErpWorkflowService {
             item.setStore(store); item.setDateIn(LocalDate.now()); em.persist(item);
             PurchaseReceiptLine receiptLine = new PurchaseReceiptLine();
             receiptLine.setReceipt(receipt); receiptLine.setPurchaseDetail(detail); receiptLine.setQuantity(entry.getValue());
+            receiptLine.setReceiptLineValidated(true);
             receipt.getLines().add(receiptLine);
             receivedTotal = Math.addExact(receivedTotal, entry.getValue());
         }
@@ -246,6 +251,7 @@ public class ErpWorkflowService {
             invoice.setCurrency(purchase.getCurrency()); invoice.setInvoiceType(InvoiceType.PURCHASE);
             invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED); invoice.setWorkflowKey("purchase:" + purchase.getIdempotencyKey());
             if (purchase.getSupplier().getContact()!=null) invoice.setBillingContacts(Set.of(purchase.getSupplier().getContact()));
+            invoice.setCreationValidated(true);
             em.persist(invoice); purchase.setInvoice(invoice);
             purchase.setApprovedDate(LocalDateTime.now());
         }
@@ -386,6 +392,7 @@ public class ErpWorkflowService {
         payment.setCurrency(currency); payment.setAmount(request.amount()); payment.setPayment(request.amount());
         payment.setPaymentTransactionDirection(direction); payment.setStatus("COMPLETED"); payment.setPaymentDate(LocalDate.now()); payment.setReferenceId(request.reference());
         payment.setDescription(request.description()); payment.setIdempotencyKey(request.idempotencyKey()); payment.setIdempotencyPayloadHash(paymentHash);
+        payment.setSettlementValidated(true);
         em.persist(payment); invoice.setSettlementValidated(true); invoice.setPaidAmount(Math.addExact(paid,request.amount()));
         long settled = Math.addExact(invoice.getPaidAmount(), credited);
         invoice.setInvoiceStatus(settled >= amount ? (credited > 0 ? InvoiceStatus.SETTLED : InvoiceStatus.PAID)
@@ -410,6 +417,7 @@ public class ErpWorkflowService {
         Currency currency = required(Currency.class, request.currencyId());
         BankStatement statement = new BankStatement();
         statement.setIdempotencyKey(request.idempotencyKey()); statement.setPayloadHash(statementHash); statement.setStatementReference(request.statementReference());
+        statement.setImportValidated(true);
         statement.setCurrency(currency); statement.setPeriodStart(request.periodStart()); statement.setPeriodEnd(request.periodEnd());
         em.persist(statement); em.flush();
         Set<String> externalIds = new HashSet<>();
@@ -421,6 +429,7 @@ public class ErpWorkflowService {
             if (input.amount() == 0) throw new IllegalArgumentException("Bank statement line amount cannot be zero");
             BankStatementLine line = new BankStatementLine();
             line.setStatement(statement); line.setExternalLineId(input.externalLineId()); line.setTransactionDate(input.transactionDate());
+            line.setImportValidated(true);
             line.setAmount(input.amount()); line.setReference(input.reference()); line.setDescription(input.description());
             em.persist(line); statement.getLines().add(line);
             if (input.reference() != null && !input.reference().isBlank()) {
@@ -516,6 +525,7 @@ public class ErpWorkflowService {
         note.setCurrency(original.getCurrency()); note.setInvoiceType(InvoiceType.CREDIT_NOTE);
         note.setInvoiceStatus(InvoiceStatus.CONFIRMED); note.setOriginalInvoice(original);
         note.setCreditNoteReason(request.reason()); note.setWorkflowKey("credit-note:" + request.idempotencyKey());
+        note.setCreationValidated(true);
         note.setBillingContacts(original.getBillingContacts()); note.setShippingContacts(original.getShippingContacts());
         em.persist(note);
         original.setSettlementValidated(true);
@@ -581,6 +591,7 @@ public class ErpWorkflowService {
                 creditNote ? "REVERSAL" : (sourceType == InvoiceType.SALE ? "SALES" : "PURCHASE"), lines);
         Map<String,Object> posted = postJournal(journal);
         JournalEntry journalEntry = required(JournalEntry.class, ((Number) posted.get("journalEntry")).longValue());
+        invoice.setLedgerPostingValidated(true);
         invoice.setLedgerJournalEntry(journalEntry);
         if (invoice.getInvoiceStatus() == InvoiceStatus.CONFIRMED) invoice.setInvoiceStatus(InvoiceStatus.POSTED);
         em.flush();
@@ -596,6 +607,7 @@ public class ErpWorkflowService {
         List<JournalEntry> sourceEntries = em.createQuery("select j from JournalEntry j where j.entryId=:sourceId", JournalEntry.class)
                 .setParameter("sourceId", sourceId).setMaxResults(1).getResultList();
         if (!sourceEntries.isEmpty()) {
+            invoice.setLedgerPostingValidated(true);
             invoice.setLedgerJournalEntry(sourceEntries.get(0));
             if (invoice.getInvoiceStatus() == InvoiceStatus.CONFIRMED) invoice.setInvoiceStatus(InvoiceStatus.POSTED);
             em.flush();
@@ -679,6 +691,7 @@ public class ErpWorkflowService {
         String entryId = "PAY-" + paymentId;
         List<JournalEntry> alreadyPosted = em.createQuery("select j from JournalEntry j where j.entryId=:entryId", JournalEntry.class).setParameter("entryId", entryId).setMaxResults(1).getResultList();
         if (!alreadyPosted.isEmpty()) {
+            payment.setLedgerPostingValidated(true);
             payment.setLedgerJournalEntry(alreadyPosted.get(0));
             em.flush();
             return result("payment", paymentId, "journalEntry", alreadyPosted.get(0).getId(), "idempotentReplay", true);
@@ -688,6 +701,7 @@ public class ErpWorkflowService {
                 List.of(new JournalLine(request.debitAccountId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, request.description()),
                         new JournalLine(request.creditAccountId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), request.description())));
         Map<String,Object> posted = postJournal(journal);
+        payment.setLedgerPostingValidated(true);
         payment.setLedgerJournalEntry(required(JournalEntry.class, ((Number) posted.get("journalEntry")).longValue()));
         em.flush();
         return result("payment", paymentId, "journalEntry", posted.get("journalEntry"),
@@ -792,7 +806,7 @@ public class ErpWorkflowService {
         ProductStockLocation stock=new ProductStockLocation(); stock.setProduct(product); stock.setStore(store); stock.setQuantity(0L); em.persist(stock); return stock;
     }
     private void movement(Product product, Store store, long quantity, String type, String refType, String refId, String key) {
-        StockMovement m=new StockMovement(); m.setProduct(product); m.setStore(store); m.setQuantity(quantity);
+        StockMovement m=new StockMovement(); m.setProduct(product); m.setStore(store); m.setQuantity(quantity); m.setMovementValidated(true);
         m.setMovementType(type); m.setReferenceType(refType); m.setReferenceId(refId); m.setIdempotencyKey(key); m.setOccurredAt(Instant.now()); em.persist(m);
     }
     private TaxCalculation calculateTax(long netAmount, Long taxRateId, Product product, Customer customer) {
