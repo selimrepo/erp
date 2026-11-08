@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import java.time.LocalDate;
 
-@Entity @NoArgsConstructor @Getter @Setter
+@Entity @EntityListeners(PaymentTransactionLifecycleListener.class) @NoArgsConstructor @Getter @Setter
 @Table(uniqueConstraints = @UniqueConstraint(name = "uk_payment_idempotency", columnNames = "idempotency_key"))
 public class PaymentTransaction extends EntityBase {
     private String status;
@@ -26,4 +26,5 @@ public class PaymentTransaction extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY) private Contact contact;
     @ManyToOne(fetch = FetchType.LAZY) private com.erplancers.erp.accounting.domain.JournalEntry ledgerJournalEntry;
     @Enumerated(EnumType.STRING) private PaymentTransactionDirection paymentTransactionDirection;
+    @Transient private String persistedFinancialFingerprint;
 }
