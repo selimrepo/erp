@@ -32,5 +32,4 @@ public class Purchase extends EntityBase {
     private Set<PurchaseDetail> purchaseDetails = new LinkedHashSet<>();
     @Transient private boolean receiptValidated;
     @Transient private boolean purchaseCreationValidated;
-    @Transient private boolean movementValidated;
 }
