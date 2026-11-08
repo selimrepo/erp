@@ -5,7 +5,6 @@ import jakarta.persistence.PostLoad;
 import jakarta.persistence.PostPersist;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
-import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.Set;
 
@@ -14,7 +13,7 @@ public class WorkflowLifecycleListener {
     private static final Map<String, Map<String, Set<String>>> TRANSITIONS = Map.of(
         "Order", Map.of("PROCESSING", Set.of("SHIPPED", "CANCELLED")),
         "Purchase", Map.of("DRAFT", Set.of("ORDERED", "CANCELLED"), "ORDERED", Set.of("PARTIALLY_RECEIVED", "RECEIVED", "CANCELLED"), "PARTIALLY_RECEIVED", Set.of("PARTIALLY_RECEIVED", "RECEIVED", "CANCELLED")),
-        "Invoice", Map.of("DRAFT", Set.of("CONFIRMED", "CANCELLED"), "CONFIRMED", Set.of("POSTED", "PARTIALLY_PAID", "PARTIALLY_CREDITED", "PARTIALLY_SETTLED", "PAID", "CREDITED", "SETTLED", "CANCELLED"), "POSTED", Set.of("PARTIALLY_PAID", "PARTIALLY_CREDITED", "PARTIALLY_SETTLED", "PAID", "CREDITED", "SETTLED", "CANCELLED"), "PARTIALLY_PAID", Set.of("PARTIALLY_PAID", "PARTIALLY_CREDITED", "PARTIALLY_SETTLED", "PAID", "SETTLED"), "PARTIALLY_CREDITED", Set.of("PARTIALLY_CREDITED", "PARTIALLY_PAID", "PARTIALLY_SETTLED", "CREDITED", "SETTLED"), "PARTIALLY_SETTLED", Set.of("PARTIALLY_SETTLED", "SETTLED"), "PAID", Set.of("SETTLED"), "CREDITED", Set.of("SETTLED"), "SETTLED", Set.of()),,
+        "Invoice", Map.of("DRAFT", Set.of("CONFIRMED", "CANCELLED"), "CONFIRMED", Set.of("POSTED", "PARTIALLY_PAID", "PARTIALLY_CREDITED", "PARTIALLY_SETTLED", "PAID", "CREDITED", "SETTLED", "CANCELLED"), "POSTED", Set.of("PARTIALLY_PAID", "PARTIALLY_CREDITED", "PARTIALLY_SETTLED", "PAID", "CREDITED", "SETTLED", "CANCELLED"), "PARTIALLY_PAID", Set.of("PARTIALLY_PAID", "PARTIALLY_CREDITED", "PARTIALLY_SETTLED", "PAID", "SETTLED"), "PARTIALLY_CREDITED", Set.of("PARTIALLY_CREDITED", "PARTIALLY_PAID", "PARTIALLY_SETTLED", "CREDITED", "SETTLED"), "PARTIALLY_SETTLED", Set.of("PARTIALLY_SETTLED", "SETTLED"), "PAID", Set.of("SETTLED"), "CREDITED", Set.of("SETTLED"), "SETTLED", Set.of()),
         "Quote", Map.of("DRAFT", Set.of("SENT", "ACCEPTED", "REJECTED", "EXPIRED"), "SENT", Set.of("ACCEPTED", "REJECTED", "EXPIRED"), "ACCEPTED", Set.of("CONVERTED", "REJECTED"), "CONVERTED", Set.of()),
         "Case", Map.of("OPEN", Set.of("IN_PROGRESS", "WAITING", "RESOLVED", "CANCELLED"), "IN_PROGRESS", Set.of("WAITING", "RESOLVED", "CANCELLED"), "WAITING", Set.of("IN_PROGRESS", "RESOLVED", "CANCELLED"), "RESOLVED", Set.of("CLOSED", "OPEN"), "CLOSED", Set.of("OPEN")),
         "Project", Map.of("PLANNED", Set.of("ACTIVE", "CANCELLED"), "ACTIVE", Set.of("ON_HOLD", "COMPLETED", "CANCELLED"), "ON_HOLD", Set.of("ACTIVE", "CANCELLED"), "COMPLETED", Set.of("ARCHIVED"), "ARCHIVED", Set.of()),
@@ -42,9 +41,14 @@ public class WorkflowLifecycleListener {
         Set<String> allowed = transitions.get(previous);
         if (allowed == null || !allowed.contains(current))
             throw new IllegalStateException("Illegal " + entity.getClass().getSimpleName() + " state transition: " + previous + " -> " + current);
-        base.setPersistedWorkflowState(current);
     }
     @PostPersist public void capturePersistedState(Object entity) {
+        capture(entity);
+    }
+    @jakarta.persistence.PostUpdate public void captureUpdatedState(Object entity) {
+        capture(entity);
+    }
+    private void capture(Object entity) {
         if (entity instanceof EntityBase base) base.setPersistedWorkflowState(state(entity));
     }
     private String state(Object entity) {
