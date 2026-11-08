@@ -2,7 +2,7 @@ package com.erplancers.erp.inventory.stock.domain;
 
 import com.erplancers.erp.common.domain.EntityBase;
 import com.erplancers.erp.inventory.product.domain.Product;
-import com.erplancers.erp.procurement.domain.Supplier;
+import com.erplancers.erp.procurement.domain.Supplier;\nimport com.erplancers.erp.inventory.warehouse.domain.Store;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.ManyToOne;
