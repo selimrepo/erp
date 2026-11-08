@@ -732,14 +732,16 @@ public class ErpWorkflowService {
         entry.setFiscalYear(year); entry.setFiscalPeriod(period); entry.setEntryId(request.entryId());
         entry.setEntryDate(request.entryDate()); entry.setDescription(request.description());
         entry.setEntryType(JournalEntryType.valueOf(request.entryType().toUpperCase(Locale.ROOT)));
-        entry.setStatus(JournalEntryStatus.POSTED); entry.setIdempotencyKey(request.idempotencyKey()); entry.setIdempotencyPayloadHash(journalHash);
+        entry.setStatus(JournalEntryStatus.DRAFT); entry.setIdempotencyKey(request.idempotencyKey()); entry.setIdempotencyPayloadHash(journalHash);
         em.persist(entry); em.flush();
         for(var input:request.lines()) {
             JournalEntryLine line=new JournalEntryLine(); line.setJournalEntry(entry); line.setAccount(required(Account.class,input.accountId()));
             line.setDebit(input.debit()); line.setCredit(input.credit()); line.setDescription(input.description());
             line.setEntryDate(request.entryDate()); line.setFiscalYear(year); line.setFiscalPeriod(period);
-            line.setJournalEntryStatus(JournalEntryStatus.POSTED); entry.getLines().add(line);
+            line.setJournalEntryStatus(JournalEntryStatus.POSTED); entry.getLines().add(line); em.persist(line);
         }
+        em.flush();
+        entry.setStatus(JournalEntryStatus.POSTED);
         em.flush();
         return result("journalEntry",entry.getId(),"debit",debit,"credit",credit,"status","POSTED","idempotentReplay",false);
     }
