@@ -170,6 +170,8 @@ public class DemoBusinessScenarioSeeder implements ApplicationRunner {
             PaymentTransaction payment = payments.get(i);
             long amount = 12500L + i * 3750L;
             set(payment, "currency", currency);
+            if (!invoices.isEmpty()) set(payment, "invoice", invoices.get(i % invoices.size()));
+            set(payment, "contact", contacts.get(i % contacts.size()));
             set(payment, "amount", amount);
             set(payment, "payment", amount);
             set(payment, "quantity", 1L);
