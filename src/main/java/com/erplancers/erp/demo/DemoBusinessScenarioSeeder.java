@@ -178,8 +178,7 @@ public class DemoBusinessScenarioSeeder implements ApplicationRunner {
             set(payment, "status", "COMPLETED");
             set(payment, "referenceId", "DEMO-PAY-" + String.format("%05d", i + 1));
             set(payment, "description", "Demo tahsilat / ödeme hareketi");
-            set(payment, "paymentTransactionDirection",
-                    PaymentTransactionDirection.values()[i % PaymentTransactionDirection.values().length]);
+            set(payment, "paymentTransactionDirection", PaymentTransactionDirection.SALES);
         }
 
         if (!journals.isEmpty() && debitAccount != null && creditAccount != null && year != null && period != null) {
