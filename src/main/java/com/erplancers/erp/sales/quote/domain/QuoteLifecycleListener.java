@@ -18,13 +18,17 @@ public class QuoteLifecycleListener {
     @PreUpdate
     public void validateUpdate(Quote quote) {
         validate(quote);
+        String previous = quote.getPersistedWorkflowState();
+        if (previous != null && !previous.equals(quote.getStatus())
+                && !quote.isTransitionValidated() && !quote.isConversionValidated())
+            throw new IllegalStateException("Quote state can only change through quote workflow commands");
         if ("CONVERTED".equals(quote.getStatus())
-                && !"CONVERTED".equals(quote.getPersistedWorkflowState()) && !quote.isConversionValidated())
+                && !"CONVERTED".equals(previous) && !quote.isConversionValidated())
             throw new IllegalStateException("Quote conversion must run through the transactional order workflow");
     }
 
     @jakarta.persistence.PostUpdate
-    public void clearAuthorization(Quote quote) { quote.setConversionValidated(false); }
+    public void clearAuthorization(Quote quote) { quote.setConversionValidated(false); quote.setTransitionValidated(false); }
 
     private void validate(Quote quote) {
         if (quote.getStatus() == null || !STATES.contains(quote.getStatus()))
