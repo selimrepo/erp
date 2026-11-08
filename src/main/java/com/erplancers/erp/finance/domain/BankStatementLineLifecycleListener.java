@@ -2,13 +2,44 @@ package com.erplancers.erp.finance.domain;
 
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
+import jakarta.persistence.PostUpdate;
+import java.util.Objects;
 import java.util.Set;
 
 public class BankStatementLineLifecycleListener {
     private static final Set<String> UNMATCHED_STATES = Set.of("UNMATCHED", "AMBIGUOUS", "ALREADY_RECONCILED");
 
-    @PrePersist @PreUpdate
-    public void validate(BankStatementLine line) {
+    @PostLoad @PostPersist
+    public void capture(BankStatementLine line) {
+        line.setPersistedMatchedPaymentId(line.getMatchedPayment() == null ? null : line.getMatchedPayment().getId());
+        line.setPersistedReconciliationFingerprint(fingerprint(line));
+    }
+
+    @PrePersist
+    public void validateInsert(BankStatementLine line) { validate(line); }
+
+    @PreUpdate
+    public void validateUpdate(BankStatementLine line) {
+        validate(line);
+        if (!Objects.equals(line.getPersistedReconciliationFingerprint(), fingerprint(line))
+                && !line.isReconciliationValidated())
+            throw new IllegalStateException("Bank statement reconciliation fields can only be changed by reconciliation workflows");
+    }
+
+    @PostUpdate
+    public void captureAfterUpdate(BankStatementLine line) {
+        capture(line);
+        line.setReconciliationValidated(false);
+    }
+
+    private String fingerprint(BankStatementLine line) {
+        return String.join("|", String.valueOf(line.getMatchedPayment() == null ? null : line.getMatchedPayment().getId()),
+                String.valueOf(line.getReconciliationStatus()), String.valueOf(line.getReconciledAt()));
+    }
+
+    private void validate(BankStatementLine line) {
         if (line.getStatement() == null || line.getExternalLineId() == null || line.getExternalLineId().isBlank())
             throw new IllegalStateException("Bank statement line requires a statement and external line id");
         if (line.getTransactionDate() == null || line.getTransactionDate().isBefore(line.getStatement().getPeriodStart())
