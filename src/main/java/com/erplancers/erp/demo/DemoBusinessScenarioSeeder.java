@@ -130,7 +130,6 @@ public class DemoBusinessScenarioSeeder implements ApplicationRunner {
                 ProductStockLocation stockLocation = stockLocations.get(i % stockLocations.size());
                 set(stockLocation, "product", product);
                 if (store != null) set(stockLocation, "store", store);
-                set(stockLocation, "quantity", 24L + i * 7L);
                 if (location != null) set(stockLocation, "locations", new LinkedHashSet<>(List.of(location)));
                 if (supplier != null) set(stockLocation, "suppliers", new LinkedHashSet<>(List.of(supplier)));
             }
