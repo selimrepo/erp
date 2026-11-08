@@ -8,7 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-@Entity @NoArgsConstructor @Getter @Setter
+@Entity @EntityListeners(PurchaseDetailLifecycleListener.class) @NoArgsConstructor @Getter @Setter
 @Table
 public class PurchaseDetail extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY, optional = false) private Purchase purchase;
