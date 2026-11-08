@@ -23,4 +23,5 @@ public class BankStatement extends EntityBase {
     @Column(nullable=false, length=24) private String status = "IMPORTED";
     @OneToMany(mappedBy="statement", cascade=CascadeType.ALL, orphanRemoval=true)
     private Set<BankStatementLine> lines = new LinkedHashSet<>();
+    @Transient private boolean reconciliationValidated;
 }
