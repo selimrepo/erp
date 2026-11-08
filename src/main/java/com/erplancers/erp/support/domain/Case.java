@@ -21,7 +21,6 @@ public class Case extends EntityBase {
     @Column(length = 24, nullable = false) String status = "OPEN";
     String description;
     String category;
-    String status;
     String type;
     String location;
     String resolution;
