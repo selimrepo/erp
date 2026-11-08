@@ -207,6 +207,44 @@ public class ErpWorkflowService {
     }
 
     @Transactional
+    public Map<String,Object> postInvoiceToLedger(Long invoiceId, ErpWorkflowRequests.DocumentPosting request) {
+        Invoice invoice = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
+        if (invoice == null) throw new IllegalArgumentException("Invoice not found: " + invoiceId);
+        if (invoice.getInvoiceStatus() == InvoiceStatus.DRAFT || invoice.getInvoiceStatus() == InvoiceStatus.CANCELLED)
+            throw new IllegalStateException("Only confirmed invoices can be posted to the ledger");
+        long amount = invoice.getAmount() == null ? 0L : invoice.getAmount();
+        if (amount <= 0) throw new IllegalStateException("Invoice amount must be positive before ledger posting");
+        boolean sale = invoice.getInvoiceType() == InvoiceType.SALE;
+        String entryId = "INV-" + invoiceId;
+        JournalPost journal = new JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
+                request.companyId(), entryId, request.entryDate(), request.description(),
+                sale ? "SALES" : "PURCHASE",
+                List.of(new JournalLine(request.debitAccountId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, request.description()),
+                        new JournalLine(request.creditAccountId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), request.description())));
+        Map<String,Object> posted = postJournal(journal);
+        return result("invoice", invoiceId, "journalEntry", posted.get("journalEntry"),
+                "status", "POSTED", "idempotentReplay", posted.get("idempotentReplay"));
+    }
+
+    @Transactional
+    public Map<String,Object> postPaymentToLedger(Long paymentId, ErpWorkflowRequests.DocumentPosting request) {
+        PaymentTransaction payment = em.find(PaymentTransaction.class, paymentId, LockModeType.PESSIMISTIC_WRITE);
+        if (payment == null) throw new IllegalArgumentException("Payment not found: " + paymentId);
+        if (!"COMPLETED".equalsIgnoreCase(payment.getStatus()))
+            throw new IllegalStateException("Only completed payments can be posted");
+        long amount = payment.getAmount() == null ? 0L : payment.getAmount();
+        if (amount <= 0) throw new IllegalStateException("Payment amount must be positive");
+        String entryId = "PAY-" + paymentId;
+        JournalPost journal = new JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
+                request.companyId(), entryId, request.entryDate(), request.description(), "PAYMENT",
+                List.of(new JournalLine(request.debitAccountId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, request.description()),
+                        new JournalLine(request.creditAccountId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), request.description())));
+        Map<String,Object> posted = postJournal(journal);
+        return result("payment", paymentId, "journalEntry", posted.get("journalEntry"),
+                "status", "POSTED", "idempotentReplay", posted.get("idempotentReplay"));
+    }
+
+    @Transactional
     public Map<String,Object> postJournal(ErpWorkflowRequests.JournalPost request) {
         List<JournalEntry> existing=em.createQuery("select j from JournalEntry j where j.idempotencyKey=:key",JournalEntry.class)
                 .setParameter("key",request.idempotencyKey()).setMaxResults(1).getResultList();
