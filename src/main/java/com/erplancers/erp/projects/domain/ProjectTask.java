@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 import lombok.*;
 
 @Entity
+@EntityListeners(ProjectTaskLifecycleListener.class)
 @NoArgsConstructor
 @Getter
 @Setter
