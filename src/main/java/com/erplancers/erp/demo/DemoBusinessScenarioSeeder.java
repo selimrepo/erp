@@ -1,7 +1,7 @@
 package com.erplancers.erp.demo;
 
 import com.erplancers.erp.accounting.domain.*;
-import com.erplancers.erp.crm.contact.domain.Contact;
+import com.erplancers.erp.crm.contact.domain.Contact;\nimport com.erplancers.erp.crm.contact.domain.Location;
 import com.erplancers.erp.crm.customer.domain.Customer;
 import com.erplancers.erp.finance.domain.*;
 import com.erplancers.erp.inventory.product.domain.Product;
@@ -46,7 +46,7 @@ public class DemoBusinessScenarioSeeder implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        List<Contact> contacts = all(Contact.class);
+        List<Contact> contacts = all(Contact.class);\n        List<Location> locations = all(Location.class);
         List<Customer> customers = all(Customer.class);
         List<Currency> currencies = all(Currency.class);
         List<Order> orders = all(Order.class);
@@ -116,11 +116,11 @@ public class DemoBusinessScenarioSeeder implements ApplicationRunner {
             if (!stockLocations.isEmpty()) {
                 ProductStockLocation location = stockLocations.get(i % stockLocations.size());
                 set(location, "product", product);
-                set(location, "quantity", 24L + i * 7L);
+                set(location, "quantity", 24L + i * 7L);\n                if (!locations.isEmpty()) set(location, "locations", new LinkedHashSet<>(List.of(locations.get(i % locations.size()))));\n                if (supplier != null) set(location, "suppliers", new LinkedHashSet<>(List.of(supplier)));
             }
             if (!stores.isEmpty()) {
                 Store store = stores.get(i % stores.size());
-                set(store, "contact", contacts.get(i % contacts.size()));
+                set(store, "contact", contacts.get(i % contacts.size()));\n                if (!locations.isEmpty()) set(locations.get(i % locations.size()), "owner", contacts.get(i % contacts.size()));
                 if (supplier != null) set(store, "suppliers", new LinkedHashSet<>(List.of(supplier)));
             }
             if (!all(Sale.class).isEmpty() && !stockItems.isEmpty()) {
