@@ -8,11 +8,11 @@ import java.util.List;
 
 public final class ErpWorkflowRequests {
     private ErpWorkflowRequests() {}
-    public record SalesLine(@NotNull Long productId, @NotNull @Positive Long quantity, @NotNull @PositiveOrZero Long unitPrice) {}
+    public record SalesLine(@NotNull Long productId, @NotNull @Positive Long quantity, @NotNull @PositiveOrZero Long unitPrice, Long taxRateId) { public SalesLine(Long productId, Long quantity, Long unitPrice) { this(productId, quantity, unitPrice, null); } }
     public record SalesOrder(@NotBlank String idempotencyKey, @NotNull Long customerId, @NotNull Long shippingContactId,
                              @NotNull Long currencyId, @NotNull Long storeId, @NotEmpty List<@Valid SalesLine> lines,
                              String comment, boolean createInvoice) {}
-    public record PurchaseLine(@NotNull Long productId, @NotNull @Positive Long quantity, @NotNull @PositiveOrZero Long unitPrice) {}
+    public record PurchaseLine(@NotNull Long productId, @NotNull @Positive Long quantity, @NotNull @PositiveOrZero Long unitPrice, Long taxRateId) { public PurchaseLine(Long productId, Long quantity, Long unitPrice) { this(productId, quantity, unitPrice, null); } }
     public record PurchaseOrder(@NotBlank String idempotencyKey, @NotNull Long supplierId, @NotNull Long storeId, @NotNull Long currencyId,
                                 @NotEmpty List<@Valid PurchaseLine> lines, String notes) {}
     public record ReceivePurchase(@NotBlank String idempotencyKey) {}
