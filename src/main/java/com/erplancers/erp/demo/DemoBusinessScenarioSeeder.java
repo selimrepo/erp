@@ -129,6 +129,7 @@ public class DemoBusinessScenarioSeeder implements ApplicationRunner {
             if (!stockLocations.isEmpty()) {
                 ProductStockLocation stockLocation = stockLocations.get(i % stockLocations.size());
                 set(stockLocation, "product", product);
+                if (store != null) set(stockLocation, "store", store);
                 set(stockLocation, "quantity", 24L + i * 7L);
                 if (location != null) set(stockLocation, "locations", new LinkedHashSet<>(List.of(location)));
                 if (supplier != null) set(stockLocation, "suppliers", new LinkedHashSet<>(List.of(supplier)));
@@ -152,12 +153,16 @@ public class DemoBusinessScenarioSeeder implements ApplicationRunner {
         // Supplier -> purchase -> purchase detail -> product; incoming stock receipts are linked above.
         for (int i = 0; i < purchases.size(); i++) {
             Purchase purchase = purchases.get(i);
-            set(purchase, "customer", customers.get(i % customers.size()));
+            set(purchase, "supplier", suppliers.isEmpty() ? null : suppliers.get(i % suppliers.size()));
+            set(purchase, "store", stores.isEmpty() ? null : stores.get(i % stores.size()));
+            set(purchase, "currency", currency);
+            set(purchase, "status", "ORDERED");
             set(purchase, "purchaseDate", LocalDateTime.now().minusDays(14L + i));
             set(purchase, "approvedDate", LocalDateTime.now().minusDays(10L + i));
 
             if (!purchaseDetails.isEmpty()) {
                 PurchaseDetail detail = purchaseDetails.get(i % purchaseDetails.size());
+                set(detail, "purchase", purchase);
                 set(detail, "product", products.isEmpty() ? null : products.get(i % products.size()));
                 set(detail, "supplier", suppliers.isEmpty() ? null : suppliers.get(i % suppliers.size()));
                 set(detail, "price", 820L + i * 110L);
@@ -194,6 +199,8 @@ public class DemoBusinessScenarioSeeder implements ApplicationRunner {
                 set(journal, "entryId", "DEMO-FIS-" + String.format("%05d", i + 1));
                 set(journal, "entryDate", date);
                 set(journal, "description", "Satış faturası muhasebe kaydı");
+                set(journal, "entryType", JournalEntryType.SALES);
+                set(journal, "status", JournalEntryStatus.POSTED);
 
                 BigDecimal amount = BigDecimal.valueOf(12500L + i * 3750L);
                 persistLine(journal, debitAccount, currency, year, period, date, amount, BigDecimal.ZERO,
