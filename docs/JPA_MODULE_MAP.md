@@ -57,3 +57,22 @@ Every application has its own HTML entry, Vite configuration, development port a
 The shared workspace provides login, module-scoped resource discovery, dashboard counts, metadata-driven create/edit forms, deletion confirmation, search and pagination using existing REST resource endpoints. Relationship-heavy fields and domain commands such as journal posting, invoice settlement and stock movement need dedicated screens/endpoints; generic CRUD deliberately does not emulate those business transactions.
 
 Backend entities, controllers, routes and database schema are unchanged.
+
+## Relationship and transaction observations from the JPA mappings
+
+The aggregate boundaries are connected by real entity references, not just naming conventions:
+
+- `Contact` owns a lazy one-to-many collection of `Address`; `Customer` references `Contact` and `CustomerGroup`, and exposes purchase, sale and customer-transaction collections.
+- `Order` references `Invoice`, `Customer`, shipping `Contact` and `Currency`, and has coupon children. This is a Sales → CRM/Finance/Shared-data integration point.
+- `Invoice` has billing/shipping contact collections and a currency reference. `PaymentTransaction` references invoice/contact/currency; this forms the Finance receivables lifecycle.
+- `JournalEntryLine` references its journal header, account, currency, fiscal year/period and cost/profit centers. The ledger module is therefore the authoritative accounting aggregate.
+- `StockItem` references Product, Supplier and Store. `Purchase` currently references Customer and owns PurchaseDetail rows; Supplier is a separate procurement entity. Confirm the intended purchasing party semantics before designing a supplier-facing purchase workflow.
+- `Project` groups tasks/assignments and references other business resources; `Event` groups event locations and related collections; Survey groups questions and response records.
+
+### JPA risks to resolve before domain-specific CRUD
+
+Several owning-side `@ManyToOne` mappings currently declare `cascade = CascadeType.ALL`, including Customer → Contact/CustomerGroup, Order → Invoice/Customer/Contact/Currency, StockItem → Product/Supplier, and Purchase → Customer. Cascading REMOVE from a child toward shared master data can delete or mutate a shared Contact, Product, Supplier, Currency or Customer unexpectedly. Prefer narrowly scoped cascade rules (often none on many-to-one) and explicit aggregate ownership after reviewing existing persistence services and migrations.
+
+Some operational associations are unidirectional and omit explicit `mappedBy`/join-column metadata. Do not assume that the Java collection is the owning side or that its database join shape is obvious. Inspect the generated schema and owning-side mappings before adding forms that manage both ends.
+
+The current generic resource API is useful for straightforward scalar CRUD, but it is not a substitute for domain commands. In particular, invoice/order/payment transitions, stock receipts/issues/transfers and balanced journal posting must be implemented as backend transactions with authorization, validation and idempotency. The module frontends intentionally expose only generic resource operations until those commands are available.
