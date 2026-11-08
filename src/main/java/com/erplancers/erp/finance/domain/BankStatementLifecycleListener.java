@@ -29,6 +29,11 @@ public class BankStatementLifecycleListener {
     @jakarta.persistence.PostUpdate
     public void clearAuthorization(BankStatement statement) { statement.setReconciliationValidated(false); }
 
+    @jakarta.persistence.PreRemove
+    public void preventDelete(BankStatement statement) {
+        throw new IllegalStateException("Imported bank statements are immutable audit records");
+    }
+
     private void validate(BankStatement statement) {
         if (statement.getIdempotencyKey() == null || statement.getIdempotencyKey().isBlank()
                 || statement.getPayloadHash() == null || !statement.getPayloadHash().matches("[0-9a-f]{64}"))
