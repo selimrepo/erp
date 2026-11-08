@@ -6,6 +6,8 @@ import jakarta.persistence.PreUpdate;
 public class StockMovementLifecycleListener {
     @PrePersist
     public void validateInsert(StockMovement movement) {
+        if (!movement.isMovementValidated())
+            throw new IllegalStateException("Stock movements can only be created by transactional stock workflows");
         if (movement.getProduct() == null || movement.getStore() == null
                 || movement.getQuantity() == null || movement.getQuantity() <= 0
                 || movement.getMovementType() == null || movement.getMovementType().isBlank()
