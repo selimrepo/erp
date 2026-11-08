@@ -17,6 +17,11 @@ public class PurchaseReceiptLifecycleListener {
     @jakarta.persistence.PostPersist
     public void clearAuthorization(PurchaseReceipt receipt) { receipt.setReceiptValidated(false); }
 
+    @jakarta.persistence.PreRemove
+    public void preventDelete(PurchaseReceipt receipt) {
+        throw new IllegalStateException("Purchase receipts are immutable audit records");
+    }
+
     private void validate(PurchaseReceipt receipt) {
         if (receipt.getPurchase() == null || receipt.getIdempotencyKey() == null || receipt.getIdempotencyKey().isBlank()
                 || receipt.getPayloadHash() == null || !receipt.getPayloadHash().matches("[0-9a-f]{64}")
