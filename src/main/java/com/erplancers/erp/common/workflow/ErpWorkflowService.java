@@ -565,7 +565,12 @@ public class ErpWorkflowService {
         String sourceId = (invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE ? "CN-" : "INV-") + invoiceId;
         List<JournalEntry> sourceEntries = em.createQuery("select j from JournalEntry j where j.entryId=:sourceId", JournalEntry.class)
                 .setParameter("sourceId", sourceId).setMaxResults(1).getResultList();
-        if (!sourceEntries.isEmpty()) return result("invoice", invoiceId, "journalEntry", sourceEntries.get(0).getId(), "idempotentReplay", true);
+        if (!sourceEntries.isEmpty()) {
+            invoice.setLedgerJournalEntry(sourceEntries.get(0));
+            if (invoice.getInvoiceStatus() == InvoiceStatus.CONFIRMED) invoice.setInvoiceStatus(InvoiceStatus.POSTED);
+            em.flush();
+            return result("invoice", invoiceId, "journalEntry", sourceEntries.get(0).getId(), "idempotentReplay", true);
+        }
         if (!Set.of(InvoiceStatus.CONFIRMED, InvoiceStatus.PARTIALLY_PAID, InvoiceStatus.PARTIALLY_CREDITED,
                 InvoiceStatus.PARTIALLY_SETTLED, InvoiceStatus.PAID, InvoiceStatus.CREDITED, InvoiceStatus.SETTLED)
                 .contains(invoice.getInvoiceStatus()))
