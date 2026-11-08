@@ -175,9 +175,12 @@ public class ErpWorkflowService {
         if (!existing.isEmpty()) {
             if (existing.get(0).getInvoice()==null || !Objects.equals(existing.get(0).getInvoice().getId(), invoiceId))
                 throw new IllegalArgumentException("Idempotency key was already used for a different invoice payment");
-            if (!Objects.equals(existing.get(0).getAmount(), request.amount()))
-                throw new IllegalArgumentException("Idempotency key was already used with a different payment amount");
-            return result("payment", existing.get(0).getId(), "idempotentReplay", true);
+            PaymentTransaction prior = existing.get(0);
+            if (!Objects.equals(prior.getAmount(), request.amount())
+                    || !Objects.equals(prior.getCurrency() == null ? null : prior.getCurrency().getId(), request.currencyId())
+                    || prior.getPaymentTransactionDirection() != PaymentTransactionDirection.valueOf(request.direction().toUpperCase(Locale.ROOT)))
+                throw new IllegalArgumentException("Idempotency key was already used with a different payment payload");
+            return result("payment", prior.getId(), "idempotentReplay", true);
         }
         Invoice invoice = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
         if (invoice == null) throw new IllegalArgumentException("Invoice not found: " + invoiceId);
@@ -222,8 +225,10 @@ public class ErpWorkflowService {
                 List.of(new JournalLine(request.debitAccountId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, request.description()),
                         new JournalLine(request.creditAccountId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), request.description())));
         Map<String,Object> posted = postJournal(journal);
+        invoice.setInvoiceStatus(InvoiceStatus.POSTED);
+        em.flush();
         return result("invoice", invoiceId, "journalEntry", posted.get("journalEntry"),
-                "status", "POSTED", "idempotentReplay", posted.get("idempotentReplay"));
+                "status", invoice.getInvoiceStatus().name(), "idempotentReplay", posted.get("idempotentReplay"));
     }
 
     @Transactional
