@@ -34,9 +34,13 @@ public class PaymentTransactionLifecycleListener {
         }
         if (payment.getLedgerJournalEntry() != null && !"COMPLETED".equalsIgnoreCase(payment.getStatus()))
             throw new IllegalStateException("Only completed payments can be linked to a ledger journal");
+        if (payment.getPersistedPaymentStatus() != null
+                && !payment.getPersistedPaymentStatus().equalsIgnoreCase(payment.getStatus())
+                && !payment.isSettlementValidated())
+            throw new IllegalStateException("Payment status can only change through a settlement workflow");
         if ("COMPLETED".equalsIgnoreCase(payment.getPersistedPaymentStatus())
                 && !"COMPLETED".equalsIgnoreCase(payment.getStatus()))
-            throw new IllegalStateException("Completed payments cannot be reopened or deleted through status updates");
+            throw new IllegalStateException("Completed payments cannot be reopened through status updates");
         if (payment.getPersistedFinancialFingerprint() != null
                 && "COMPLETED".equalsIgnoreCase(payment.getStatus())
                 && !Objects.equals(payment.getPersistedFinancialFingerprint(), fingerprint(payment)))
