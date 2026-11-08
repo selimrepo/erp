@@ -139,37 +139,90 @@ public class ErpWorkflowService {
 
     @Transactional
     public Map<String,Object> receivePurchase(Long purchaseId, ErpWorkflowRequests.ReceivePurchase request, Long storeId) {
+        return receivePurchaseLines(purchaseId, request.idempotencyKey(), null, storeId);
+    }
+
+    @Transactional
+    public Map<String,Object> receivePurchasePartial(Long purchaseId, ErpWorkflowRequests.PartialReceivePurchase request, Long storeId) {
+        return receivePurchaseLines(purchaseId, request.idempotencyKey(), request.lines(), storeId);
+    }
+
+    private Map<String,Object> receivePurchaseLines(Long purchaseId, String idempotencyKey,
+            List<ErpWorkflowRequests.PurchaseReceiptLineInput> requestedLines, Long storeId) {
+        List<PurchaseReceipt> previous = em.createQuery("select r from PurchaseReceipt r where r.idempotencyKey=:key", PurchaseReceipt.class)
+                .setParameter("key", idempotencyKey).setMaxResults(1).getResultList();
+        if (!previous.isEmpty()) {
+            if (!Objects.equals(previous.get(0).getPurchase().getId(), purchaseId))
+                throw new IllegalArgumentException("Receipt idempotency key belongs to another purchase");
+            return result("purchase", purchaseId, "receipt", previous.get(0).getId(), "status", previous.get(0).getPurchase().getStatus(), "idempotentReplay", true);
+        }
         Purchase purchase = em.find(Purchase.class, purchaseId, LockModeType.PESSIMISTIC_WRITE);
         if (purchase == null) throw new IllegalArgumentException("Purchase not found: " + purchaseId);
-        if ("RECEIVED".equals(purchase.getStatus())) {
-            if (Objects.equals(purchase.getReceiptIdempotencyKey(), request.idempotencyKey()))
-                return result("purchase", purchaseId, "status", "RECEIVED", "invoiceId", purchase.getInvoice()==null?null:purchase.getInvoice().getId(), "idempotentReplay", true);
-            throw new IllegalStateException("Purchase has already been received");
-        }
+        if (!Set.of("ORDERED", "PARTIALLY_RECEIVED").contains(purchase.getStatus()))
+            throw new IllegalStateException("Only ordered or partially received purchases can receive goods");
         if (purchase.getStore()==null || !Objects.equals(purchase.getStore().getId(),storeId))
             throw new IllegalArgumentException("Receipt warehouse must match the purchase warehouse");
         Store store = em.find(Store.class, purchase.getStore().getId(), LockModeType.PESSIMISTIC_WRITE);
         if (purchase.getPurchaseDetails().isEmpty()) throw new IllegalStateException("Purchase has no detail lines");
-        int index=0;
-        for (PurchaseDetail detail : purchase.getPurchaseDetails()) {
+
+        Map<Long, Long> quantities = new LinkedHashMap<>();
+        if (requestedLines == null) {
+            for (PurchaseDetail detail : purchase.getPurchaseDetails()) {
+                long received = detail.getReceivedQuantity() == null ? 0L : detail.getReceivedQuantity();
+                long remaining = detail.getQuantity() - received;
+                if (remaining > 0) quantities.put(detail.getId(), remaining);
+            }
+        } else {
+            for (ErpWorkflowRequests.PurchaseReceiptLineInput line : requestedLines) {
+                if (quantities.putIfAbsent(line.purchaseDetailId(), line.quantity()) != null)
+                    throw new IllegalArgumentException("Duplicate purchase detail in receipt: " + line.purchaseDetailId());
+            }
+        }
+        if (quantities.isEmpty()) throw new IllegalStateException("There are no outstanding quantities to receive");
+
+        PurchaseReceipt receipt = new PurchaseReceipt();
+        receipt.setPurchase(purchase); receipt.setIdempotencyKey(idempotencyKey); receipt.setReceivedAt(LocalDateTime.now());
+        em.persist(receipt);
+        long receivedTotal = 0L;
+        for (Map.Entry<Long, Long> entry : quantities.entrySet()) {
+            PurchaseDetail detail = purchase.getPurchaseDetails().stream()
+                    .filter(d -> Objects.equals(d.getId(), entry.getKey())).findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("Purchase detail does not belong to this purchase: " + entry.getKey()));
+            long alreadyReceived = detail.getReceivedQuantity() == null ? 0L : detail.getReceivedQuantity();
+            long nextReceived = Math.addExact(alreadyReceived, entry.getValue());
+            if (entry.getValue() <= 0 || nextReceived > detail.getQuantity())
+                throw new IllegalArgumentException("Receipt quantity exceeds outstanding quantity for purchase detail " + detail.getId());
+            detail.setReceivedQuantity(nextReceived);
             ProductStockLocation stock = stockForUpdateOrCreate(detail.getProduct(), store);
-            long quantity = stock.getQuantity()==null?0:stock.getQuantity();
-            stock.setQuantity(Math.addExact(quantity, detail.getQuantity()));
-            movement(detail.getProduct(), store, detail.getQuantity(), "PURCHASE_RECEIPT", "PURCHASE", purchaseId.toString(),
-                    request.idempotencyKey()+":receipt:"+(index++));
+            long onHand = stock.getQuantity() == null ? 0L : stock.getQuantity();
+            stock.setQuantity(Math.addExact(onHand, entry.getValue()));
+            movement(detail.getProduct(), store, entry.getValue(), "PURCHASE_RECEIPT", "PURCHASE", purchaseId.toString(),
+                    idempotencyKey + ":receipt:" + detail.getId());
             StockItem item = new StockItem(); item.setProduct(detail.getProduct()); item.setSupplier(purchase.getSupplier());
             item.setStore(store); item.setDateIn(LocalDate.now()); em.persist(item);
+            PurchaseReceiptLine receiptLine = new PurchaseReceiptLine();
+            receiptLine.setReceipt(receipt); receiptLine.setPurchaseDetail(detail); receiptLine.setQuantity(entry.getValue());
+            receipt.getLines().add(receiptLine);
+            receivedTotal = Math.addExact(receivedTotal, entry.getValue());
         }
-        Invoice invoice = new Invoice(); invoice.setInvoiceName("INV-P-" + purchaseId);
-        invoice.setInvoiceDescription("Supplier invoice for purchase " + purchaseId);
-        invoice.setAmount(purchase.getTotalAmount()); invoice.setPaidAmount(0L);
-        invoice.setCurrency(purchase.getCurrency()); invoice.setInvoiceType(InvoiceType.PURCHASE);
-        invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED); invoice.setWorkflowKey("purchase:" + purchase.getIdempotencyKey());
-        if (purchase.getSupplier().getContact()!=null) invoice.setBillingContacts(Set.of(purchase.getSupplier().getContact()));
-        em.persist(invoice); purchase.setInvoice(invoice);
-        purchase.setReceiptIdempotencyKey(request.idempotencyKey());
-        purchase.setStatus("RECEIVED"); purchase.setApprovedDate(LocalDateTime.now()); em.flush();
-        return result("purchase", purchaseId, "status", "RECEIVED", "invoiceId", invoice.getId(), "idempotentReplay", false);
+        boolean fullyReceived = purchase.getPurchaseDetails().stream().allMatch(d ->
+                (d.getReceivedQuantity() == null ? 0L : d.getReceivedQuantity()) >= d.getQuantity());
+        purchase.setStatus(fullyReceived ? "RECEIVED" : "PARTIALLY_RECEIVED");
+        purchase.setReceiptIdempotencyKey(idempotencyKey);
+        if (fullyReceived && purchase.getInvoice() == null) {
+            Invoice invoice = new Invoice(); invoice.setInvoiceName("INV-P-" + purchaseId);
+            invoice.setInvoiceDescription("Supplier invoice for purchase " + purchaseId);
+            invoice.setAmount(purchase.getTotalAmount()); invoice.setPaidAmount(0L);
+            invoice.setCurrency(purchase.getCurrency()); invoice.setInvoiceType(InvoiceType.PURCHASE);
+            invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED); invoice.setWorkflowKey("purchase:" + purchase.getIdempotencyKey());
+            if (purchase.getSupplier().getContact()!=null) invoice.setBillingContacts(Set.of(purchase.getSupplier().getContact()));
+            em.persist(invoice); purchase.setInvoice(invoice);
+            purchase.setApprovedDate(LocalDateTime.now());
+        }
+        em.flush();
+        return result("purchase", purchaseId, "receipt", receipt.getId(), "receivedQuantity", receivedTotal,
+                "status", purchase.getStatus(), "invoiceId", purchase.getInvoice()==null?null:purchase.getInvoice().getId(),
+                "idempotentReplay", false);
     }
 
     @Transactional
