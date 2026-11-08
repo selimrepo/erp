@@ -59,6 +59,16 @@ public class ErpWorkflowController {
         require(auth,"invoice","WRITE"); require(auth,"payment-transaction","WRITE");
         return workflows.payInvoice(id,request);
     }
+    @PostMapping("/finance/bank-statements")
+    public Map<String,Object> importBankStatement(Authentication auth,@Valid @RequestBody ErpWorkflowRequests.BankStatementImport request) {
+        require(auth,"bank-statement","WRITE"); require(auth,"payment-transaction","READ");
+        return workflows.importBankStatement(request);
+    }
+    @PostMapping("/finance/bank-statement-lines/{id}/reconcile/{paymentId}")
+    public Map<String,Object> reconcileBankStatementLine(Authentication auth,@PathVariable Long id,@PathVariable Long paymentId) {
+        require(auth,"bank-statement-line","WRITE"); require(auth,"payment-transaction","WRITE");
+        return workflows.reconcileBankStatementLine(id,paymentId);
+    }
     @PostMapping("/finance/invoices/{id}/credit-notes")
     public Map<String,Object> createCreditNote(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.CreditNote request) {
         require(auth,"invoice","WRITE");
