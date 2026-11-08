@@ -18,20 +18,22 @@ This document describes the transactional commands exposed by `/api/workflows`. 
 3. Receipt increments product/warehouse balances, writes `PURCHASE_RECEIPT` movements and creates the supplier invoice.
 4. Purchase state and receipt idempotency key prevent duplicate receipt processing. A receipt must target the purchase warehouse.
 
-Current model limitation: receipt is all-lines/all-quantity. Partial receipts and per-line received quantities require a persisted received-quantity field and a schema migration; the current API intentionally does not pretend to support them.
+Partial receipts are supported through `POST /procurement/purchases/{id}/receive-lines`. Each request names purchase-detail IDs and positive received quantities; the purchase is locked, cumulative received quantities cannot exceed ordered quantities, and receipt lines and stock movements are written atomically. The legacy `/receive` command remains as a receive-all-outstanding convenience operation.
 
-## Finance — invoice and settlement
+## Finance — invoice, settlement, credit notes and bank reconciliation
 
-1. Sales and purchase workflows create confirmed invoices with a stable workflow key.
-2. `POST /finance/invoices/{id}/payments` accepts partial or full payment transactions. The invoice is locked, currency and invoice direction are validated, overpayments are rejected, and invoice paid/outstanding status is updated atomically.
-3. Reusing a payment idempotency key for another invoice or amount is rejected.
-4. Draft and cancelled invoices cannot be settled.
+1. Sales and fully received purchase workflows create confirmed invoices with stable workflow keys and persisted net/tax/gross snapshots.
+2. `POST /finance/invoices/{id}/payments` accepts partial or full payment transactions. The invoice is locked, currency and invoice direction are validated, overpayments are rejected, and paid/outstanding status is updated atomically.
+3. `POST /finance/invoices/{id}/credit-notes` creates a linked credit note and updates the original invoice's credited balance; the credit cannot exceed the remaining unsettled balance.
+4. `POST /finance/bank-statements` imports idempotent statement lines and performs conservative exact matching by currency, amount, reference, direction and payment date. Ambiguous matches remain unmatched for operator review.
+5. `POST /finance/bank-statement-lines/{id}/reconcile/{paymentId}` manually reconciles a line after strict match checks. A payment can be matched to only one statement line.
+6. Reusing a payment, credit-note or statement idempotency key with a different payload is rejected. Draft and cancelled invoices cannot be settled.
 
 ## Accounting — source document posting
 
 - `POST /finance/invoices/{id}/post` posts a balanced two-line journal for a confirmed invoice.
 - `POST /finance/payments/{id}/post` posts a balanced two-line journal for a completed payment.
-- The caller supplies fiscal year/period, posting date, debit account and credit account. This is deliberate: account determination must be configured against the customer's chart of accounts rather than hard-coded to arbitrary account IDs.
+- The caller can supply explicit debit/credit/tax accounts, or use the automatic posting endpoints backed by company-specific or global `AccountDeterminationRule` records. Account determination is configured against the customer's chart of accounts rather than hard-coded to arbitrary account IDs.
 - The journal command validates open fiscal period/date, posting-enabled accounts, non-negative one-sided line amounts and exact debit/credit equality. Journal and source-posting operations share the same database transaction.
 - For a sales invoice, configure debit = receivables and credit = sales revenue. For a purchase invoice, configure debit = inventory/expense and credit = payables. For a customer receipt, configure debit = bank/cash and credit = receivables. For a supplier payment, configure debit = payables and credit = bank/cash.
 
@@ -41,5 +43,5 @@ Current model limitation: receipt is all-lines/all-quantity. Partial receipts an
 - Pessimistic locks serialize updates to the order, invoice, purchase, warehouse and stock balance.
 - Idempotency keys are backed by unique database constraints on the source records/movements.
 - Generic CRUD remains available for master data and setup. It must not be used to post stock, settle invoices or create ledger entries.
-- The current invoice model stores integer monetary amounts. Configure and display values using the application's existing minor-unit convention; currency precision and tax-inclusive pricing still need a formal tenant-level policy.
-- This iteration does not add automatic account mapping, tax calculation, delivery carrier integration, returns/credit notes, bank reconciliation or partial goods receipt. Those require explicit business configuration and additional domain fields.
+- The current invoice model stores integer monetary amounts. Configure and display values using the application's existing minor-unit convention; currency precision, tax-inclusive pricing and jurisdiction-specific tax determination still need a formal tenant-level policy.
+- Inventory corrections use `POST /inventory/stock-adjustments`, which stores an immutable reasoned adjustment and compensating stock movement. Generic CRUD cannot directly change an existing stock balance.
