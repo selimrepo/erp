@@ -30,7 +30,6 @@ public class OrderLifecycleListener {
 
     @PreRemove
     public void preventDelete(Order order) {
-        if (order.getOrderStatus() != OrderStatus.CANCELLED)
-            throw new IllegalStateException("Active or shipped orders cannot be deleted");
+        throw new IllegalStateException("Sales orders are immutable business records and cannot be deleted");
     }
 }
