@@ -4,8 +4,8 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 
 public class PurchaseReceiptLineLifecycleListener {
-    @PrePersist @PreUpdate
-    public void validate(PurchaseReceiptLine line) {
+    @PrePersist
+    public void validateInsert(PurchaseReceiptLine line) {
         if (line.getReceipt() == null || line.getPurchaseDetail() == null)
             throw new IllegalStateException("Receipt line requires a receipt and purchase detail");
         if (line.getQuantity() == null || line.getQuantity() <= 0)
@@ -14,5 +14,15 @@ public class PurchaseReceiptLineLifecycleListener {
         Long detailPurchase = line.getPurchaseDetail().getPurchase() == null ? null : line.getPurchaseDetail().getPurchase().getId();
         if (receiptPurchase == null || !receiptPurchase.equals(detailPurchase))
             throw new IllegalStateException("Receipt line detail must belong to the receipt purchase");
+    }
+
+    @jakarta.persistence.PreUpdate
+    public void preventUpdate(PurchaseReceiptLine line) {
+        throw new IllegalStateException("Purchase receipt lines are immutable; use a return or correction workflow");
+    }
+
+    @jakarta.persistence.PreRemove
+    public void preventDelete(PurchaseReceiptLine line) {
+        throw new IllegalStateException("Purchase receipt lines cannot be deleted");
     }
 }
