@@ -20,7 +20,8 @@ public class WorkflowLifecycleListener {
         "Project", Map.of("PLANNED", Set.of("ACTIVE", "CANCELLED"), "ACTIVE", Set.of("ON_HOLD", "COMPLETED", "CANCELLED"), "ON_HOLD", Set.of("ACTIVE", "CANCELLED"), "COMPLETED", Set.of("ARCHIVED"), "ARCHIVED", Set.of()),
         "ProjectTask", Map.of("TODO", Set.of("IN_PROGRESS", "BLOCKED", "CANCELLED"), "IN_PROGRESS", Set.of("BLOCKED", "DONE", "CANCELLED"), "BLOCKED", Set.of("IN_PROGRESS", "CANCELLED"), "DONE", Set.of()),
         "Opportunity", Map.of("NEW", Set.of("QUALIFIED", "PROPOSAL", "WON", "LOST"), "QUALIFIED", Set.of("PROPOSAL", "WON", "LOST"), "PROPOSAL", Set.of("WON", "LOST"), "WON", Set.of(), "LOST", Set.of()),
-        "JournalEntry", Map.of("DRAFT", Set.of("POSTED", "CANCELLED"), "POSTED", Set.of(), "CANCELLED", Set.of())
+        "JournalEntry", Map.of("DRAFT", Set.of("POSTED", "CANCELLED"), "POSTED", Set.of(), "CANCELLED", Set.of()),
+        "BankStatement", Map.of("IMPORTED", Set.of("PARTIALLY_RECONCILED", "RECONCILED"), "PARTIALLY_RECONCILED", Set.of("PARTIALLY_RECONCILED", "RECONCILED"), "RECONCILED", Set.of())
     );
 
     @PostLoad public void captureLoadedState(Object entity) {
