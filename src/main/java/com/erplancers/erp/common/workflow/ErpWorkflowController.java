@@ -15,6 +15,26 @@ public class ErpWorkflowController {
     private final ErpWorkflowService workflows;
     private final PolicyAuthorizationService authorization;
 
+    @PostMapping("/sales/quotes/{id}/transition")
+    public Map<String,Object> transitionQuote(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.WorkflowTransition request) {
+        require(auth,"quote","WRITE"); return workflows.transitionQuote(id,request);
+    }
+    @PostMapping("/crm/opportunities/{id}/transition")
+    public Map<String,Object> transitionOpportunity(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.WorkflowTransition request) {
+        require(auth,"opportunity","WRITE"); return workflows.transitionOpportunity(id,request);
+    }
+    @PostMapping("/support/cases/{id}/transition")
+    public Map<String,Object> transitionCase(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.WorkflowTransition request) {
+        require(auth,"case","WRITE"); return workflows.transitionCase(id,request);
+    }
+    @PostMapping("/projects/{id}/transition")
+    public Map<String,Object> transitionProject(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.WorkflowTransition request) {
+        require(auth,"project","WRITE"); return workflows.transitionProject(id,request);
+    }
+    @PostMapping("/projects/tasks/{id}/transition")
+    public Map<String,Object> transitionProjectTask(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.WorkflowTransition request) {
+        require(auth,"project-task","WRITE"); return workflows.transitionProjectTask(id,request);
+    }
     @PostMapping("/sales/quotes/{id}/convert")
     public Map<String,Object> convertQuote(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.QuoteConversion request) {
         require(auth,"quote","WRITE"); require(auth,"order","WRITE"); require(auth,"product-stock-location","WRITE"); require(auth,"stock-movement","WRITE");
