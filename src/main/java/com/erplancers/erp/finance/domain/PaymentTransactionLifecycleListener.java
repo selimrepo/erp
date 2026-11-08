@@ -23,7 +23,9 @@ public class PaymentTransactionLifecycleListener {
         if ("COMPLETED".equalsIgnoreCase(payment.getStatus())) {
             if (payment.getPersistedPaymentStatus() == null && !payment.isSettlementValidated())
                 throw new IllegalStateException("Completed payments can only be created by the invoice settlement workflow");
-            if (payment.getInvoice() == null || payment.getCurrency() == null
+            if (payment.getIdempotencyKey() == null || payment.getIdempotencyPayloadHash() == null
+                    || !payment.getIdempotencyPayloadHash().matches("[0-9a-f]{64}")
+                    || payment.getInvoice() == null || payment.getCurrency() == null
                     || payment.getPaymentTransactionDirection() == null || payment.getPaymentDate() == null
                     || payment.getAmount() == null || payment.getAmount() <= 0)
                 throw new IllegalStateException("Completed payment requires invoice, currency, direction, date and positive amount");
