@@ -13,11 +13,14 @@ public class InvoiceLifecycleListener {
     public void capture(Invoice invoice) {
         invoice.setPersistedAmountFingerprint(amountFingerprint(invoice));
         invoice.setPersistedSettlementFingerprint(settlementFingerprint(invoice));
+        invoice.setPersistedLedgerJournalEntryId(invoice.getLedgerJournalEntry() == null ? null : invoice.getLedgerJournalEntry().getId());
     }
 
     @PrePersist
     public void validateInsert(Invoice invoice) {
         validate(invoice);
+        if (invoice.getInvoiceStatus() == null || invoice.getInvoiceType() == null)
+            throw new IllegalStateException("Invoice type and status are required");
         if (isSettledState(invoice.getInvoiceStatus()) || invoice.getInvoiceStatus() == InvoiceStatus.POSTED
                 || value(invoice.getPaidAmount()) != 0 || value(invoice.getCreditedAmount()) != 0)
             throw new IllegalStateException("New invoices must be created unsettled as DRAFT or CONFIRMED and then processed by workflow commands");
@@ -34,6 +37,10 @@ public class InvoiceLifecycleListener {
                 && !Objects.equals(invoice.getPersistedSettlementFingerprint(), settlementFingerprint(invoice))
                 && !invoice.isSettlementValidated())
             throw new IllegalStateException("Paid and credited balances can only be changed by settlement workflows");
+        Long currentJournalId = invoice.getLedgerJournalEntry() == null ? null : invoice.getLedgerJournalEntry().getId();
+        if (!Objects.equals(invoice.getPersistedLedgerJournalEntryId(), currentJournalId)
+                && !invoice.isLedgerPostingValidated())
+            throw new IllegalStateException("Invoice ledger linkage can only be changed by the posting workflow");
         if (invoice.getPersistedWorkflowState() != null
                 && !Objects.equals(invoice.getPersistedWorkflowState(), invoice.getInvoiceStatus() == null ? null : invoice.getInvoiceStatus().name())
                 && isSettledState(invoice.getInvoiceStatus()) && !invoice.isSettlementValidated())
@@ -46,7 +53,9 @@ public class InvoiceLifecycleListener {
     public void captureAfterUpdate(Invoice invoice) {
         invoice.setPersistedAmountFingerprint(amountFingerprint(invoice));
         invoice.setPersistedSettlementFingerprint(settlementFingerprint(invoice));
+        invoice.setPersistedLedgerJournalEntryId(invoice.getLedgerJournalEntry() == null ? null : invoice.getLedgerJournalEntry().getId());
         invoice.setSettlementValidated(false);
+        invoice.setLedgerPostingValidated(false);
     }
 
     @PreRemove
@@ -75,8 +84,9 @@ public class InvoiceLifecycleListener {
             throw new IllegalStateException("PAID invoice state requires full payment and no credit note");
         if (invoice.getInvoiceStatus() == InvoiceStatus.CREDITED && (credited < amount || paid != 0))
             throw new IllegalStateException("CREDITED invoice state requires full credit and no payment");
-        if (invoice.getInvoiceStatus() == InvoiceStatus.SETTLED && Math.addExact(paid, credited) != amount)
-            throw new IllegalStateException("SETTLED invoice state requires payment and credit totals to equal gross amount");
+        if (invoice.getInvoiceStatus() == InvoiceStatus.SETTLED
+                && (paid <= 0 || credited <= 0 || Math.addExact(paid, credited) != amount))
+            throw new IllegalStateException("SETTLED invoice state requires both payment and credit totals to equal gross amount");
         if (invoice.getInvoiceStatus() == InvoiceStatus.PARTIALLY_PAID && (paid <= 0 || credited != 0 || paid >= amount))
             throw new IllegalStateException("PARTIALLY_PAID state requires a positive partial payment");
         if (invoice.getInvoiceStatus() == InvoiceStatus.PARTIALLY_CREDITED && (credited <= 0 || paid != 0 || credited >= amount))
@@ -87,6 +97,10 @@ public class InvoiceLifecycleListener {
         if (invoice.getInvoiceStatus() != null && invoice.getInvoiceStatus() != InvoiceStatus.DRAFT
                 && invoice.getInvoiceStatus() != InvoiceStatus.CANCELLED && amount <= 0)
             throw new IllegalStateException("Confirmed invoices must have a positive gross amount");
+        if ((invoice.getInvoiceStatus() == InvoiceStatus.DRAFT || invoice.getInvoiceStatus() == InvoiceStatus.CONFIRMED
+                || invoice.getInvoiceStatus() == InvoiceStatus.POSTED || invoice.getInvoiceStatus() == InvoiceStatus.CANCELLED)
+                && (paid != 0 || credited != 0))
+            throw new IllegalStateException("Unsettled invoice states cannot carry paid or credited balances");
     }
 
     private String amountFingerprint(Invoice invoice) {
