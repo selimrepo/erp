@@ -79,6 +79,16 @@ public class ErpWorkflowController {
         require(auth,"invoice","WRITE"); require(auth,"journal-entry","WRITE"); require(auth,"journal-entry-line","WRITE"); require(auth,"account","READ");
         return workflows.postInvoiceToLedger(id,request);
     }
+    @PostMapping("/finance/invoices/{id}/post-auto")
+    public Map<String,Object> postInvoiceAutomatically(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.AutoDocumentPosting request) {
+        require(auth,"invoice","WRITE"); require(auth,"journal-entry","WRITE"); require(auth,"journal-entry-line","WRITE"); require(auth,"account-determination-rule","READ");
+        return workflows.postInvoiceAutomatically(id,request);
+    }
+    @PostMapping("/finance/payments/{id}/post-auto")
+    public Map<String,Object> postPaymentAutomatically(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.AutoDocumentPosting request) {
+        require(auth,"payment-transaction","WRITE"); require(auth,"journal-entry","WRITE"); require(auth,"journal-entry-line","WRITE"); require(auth,"account-determination-rule","READ");
+        return workflows.postPaymentAutomatically(id,request);
+    }
     @PostMapping("/finance/payments/{id}/post")
     public Map<String,Object> postPaymentToLedger(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.DocumentPosting request) {
         require(auth,"payment-transaction","WRITE"); require(auth,"journal-entry","WRITE"); require(auth,"journal-entry-line","WRITE"); require(auth,"account","READ");
