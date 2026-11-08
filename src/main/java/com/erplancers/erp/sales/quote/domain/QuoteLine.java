@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
+@EntityListeners(QuoteLineLifecycleListener.class)
 @Table(name = "erp_quote_line")
 @Getter @Setter @NoArgsConstructor
 public class QuoteLine extends EntityBase {
