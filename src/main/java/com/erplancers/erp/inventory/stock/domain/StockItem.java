@@ -20,10 +20,10 @@ import java.time.LocalDate;
 public class StockItem extends EntityBase {
     LocalDate dateIn;
 
-    @ManyToOne(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     Product product;
 
-    @ManyToOne(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     Supplier supplier;
 
     @ManyToOne(fetch = FetchType.LAZY)
