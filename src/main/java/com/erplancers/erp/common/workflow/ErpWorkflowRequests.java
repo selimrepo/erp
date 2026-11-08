@@ -19,6 +19,7 @@ public final class ErpWorkflowRequests {
     public record PurchaseReceiptLineInput(@NotNull Long purchaseDetailId, @NotNull @Positive Long quantity) {}
     public record PartialReceivePurchase(@NotBlank String idempotencyKey, @NotEmpty List<@Valid PurchaseReceiptLineInput> lines) {}
     public record OrderTransition(@NotBlank String idempotencyKey) {}
+    public record WorkflowTransition(@NotBlank String status, String resolution) {}
     public record QuoteConversion(@NotBlank String idempotencyKey, @NotNull Long storeId, boolean createInvoice, String comment) {}
     public record CreditNote(@NotBlank String idempotencyKey, @NotNull @Positive Long amount, @NotBlank String reason) {}
     public record BankStatementLineInput(@NotBlank String externalLineId, @NotNull LocalDate transactionDate, @NotNull Long amount, String reference, String description) {}
