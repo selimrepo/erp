@@ -10,7 +10,7 @@ BEGIN
        AND NOT EXISTS (
            SELECT 1 FROM pg_constraint
            WHERE conname = 'fk_payment_transaction_invoice'
-             AND conrelid = 'public.payment_transaction'::regclass
+             AND conrelid = to_regclass('public.payment_transaction')
        ) THEN
         ALTER TABLE payment_transaction
             ADD CONSTRAINT fk_payment_transaction_invoice
@@ -18,5 +18,10 @@ BEGIN
     END IF;
 END $$;
 
-CREATE INDEX IF NOT EXISTS ix_payment_transaction_invoice_status
-    ON payment_transaction(invoice_id, status);
+DO $
+BEGIN
+    IF to_regclass('public.payment_transaction') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS ix_payment_transaction_invoice_status
+            ON payment_transaction(invoice_id, status);
+    END IF;
+END $;
