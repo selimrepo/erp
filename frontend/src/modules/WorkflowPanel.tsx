@@ -73,8 +73,9 @@ function Procurement({credentials:c}:{credentials:Credentials}){
  </div>}{receiveResult&&<p style={{color:"#176b43"}}>Goods received. Stock balances, movement ledger and supplier invoice updated.</p>}{receive.isError&&<p role="alert" style={{color:"#b42318"}}>{(receive.error as Error).message}</p>}</div>}</>
 }
 function Finance({credentials:c}:{credentials:Credentials}){
+ const qc=useQueryClient();
  const invoicesQ=useRows("invoice",c),contactsQ=useRows("contact",c),currenciesQ=useRows("currency",c),yearsQ=useRows("fiscal-year",c),periodsQ=useRows("fiscal-period",c),accountsQ=useRows("account",c);
- const statementsQ=useRows("bank-statement",c),statementLinesQ=useRows("bank-statement-line",c),paymentsQ=useRows("payment-transaction",c);
+ const statementLinesQ=useRows("bank-statement-line",c),paymentsQ=useRows("payment-transaction",c);
  const [creditAmount,setCreditAmount]=useState(""),[creditReason,setCreditReason]=useState(""),[creditResult,setCreditResult]=useState<any>(null);
  const [statementReference,setStatementReference]=useState(""),[statementStart,setStatementStart]=useState(""),[statementEnd,setStatementEnd]=useState(""),[statementLines,setStatementLines]=useState('[{"externalLineId":"line-1","transactionDate":"2026-11-08","amount":1000,"reference":"BANK-REF","description":"Bank transaction"}]'),[statementResult,setStatementResult]=useState<any>(null);
  const [statementLine,setStatementLine]=useState(""),[payment,setPayment]=useState(""),[reconcileResult,setReconcileResult]=useState<any>(null);
