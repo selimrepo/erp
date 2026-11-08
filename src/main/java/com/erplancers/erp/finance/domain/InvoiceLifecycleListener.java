@@ -14,6 +14,7 @@ public class InvoiceLifecycleListener {
         invoice.setPersistedAmountFingerprint(amountFingerprint(invoice));
         invoice.setPersistedSettlementFingerprint(settlementFingerprint(invoice));
         invoice.setPersistedLedgerJournalEntryId(invoice.getLedgerJournalEntry() == null ? null : invoice.getLedgerJournalEntry().getId());
+        invoice.setCreationValidated(false);
     }
 
     @PrePersist
