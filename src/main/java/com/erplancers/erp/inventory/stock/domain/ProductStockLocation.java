@@ -25,4 +25,6 @@ public class ProductStockLocation extends EntityBase {
     @Transient private boolean stockAdjustmentValidated;
     @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private Long persistedQuantity;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @Transient private String persistedStockKey;
 }
