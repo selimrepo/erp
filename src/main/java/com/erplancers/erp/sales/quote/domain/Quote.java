@@ -39,16 +39,16 @@ public class Quote extends EntityBase {
     @OneToMany(mappedBy = "quote", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<QuoteLine> lines = new LinkedHashSet<>();
     LocalDate date;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     Contact contactBilling;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     Contact contactShipping;
     Long numberQuote;
     @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
     Set<Opportunity> opportunities;
     @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
     Set<Sale> sales;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     Currency currency;
     @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
     Set<Invoice> invoices;
