@@ -48,6 +48,12 @@ public class ErpWorkflowController {
         require(auth,"purchase","WRITE"); require(auth,"product-stock-location","WRITE"); require(auth,"stock-item","WRITE");
         return workflows.receivePurchase(id,request,storeId);
     }
+    @PostMapping("/procurement/purchases/{id}/receive-lines")
+    public Map<String,Object> receivePurchasePartial(Authentication auth,@PathVariable Long id,@RequestParam Long storeId,
+            @Valid @RequestBody ErpWorkflowRequests.PartialReceivePurchase request) {
+        require(auth,"purchase","WRITE"); require(auth,"product-stock-location","WRITE"); require(auth,"stock-item","WRITE"); require(auth,"stock-movement","WRITE");
+        return workflows.receivePurchasePartial(id,request,storeId);
+    }
     @PostMapping("/finance/invoices/{id}/payments")
     public Map<String,Object> payInvoice(Authentication auth,@PathVariable Long id,@Valid @RequestBody ErpWorkflowRequests.InvoicePayment request) {
         require(auth,"invoice","WRITE"); require(auth,"payment-transaction","WRITE");
