@@ -18,5 +18,6 @@ import lombok.*;
 public class ProjectTask extends EntityBase {
     
     String name;
+    @Column(length = 24, nullable = false) private String status = "TODO";
     String description;
 }
