@@ -12,7 +12,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import java.util.Set;
 
-@Entity @NoArgsConstructor @Getter @Setter @Table
+@Entity @NoArgsConstructor @Getter @Setter
+@Table(uniqueConstraints = @UniqueConstraint(name = "uk_stock_product_store", columnNames = {"product_id", "store_id"}))
 public class ProductStockLocation extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY, optional = false) private Product product;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) private Store store;
