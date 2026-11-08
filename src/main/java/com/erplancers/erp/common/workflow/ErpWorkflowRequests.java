@@ -32,7 +32,7 @@ public final class ErpWorkflowRequests {
             Long companyId, @NotNull LocalDate entryDate, @NotBlank String description) {}
     public record DocumentPosting(@NotBlank String idempotencyKey, @NotNull Long fiscalYearId, @NotNull Long fiscalPeriodId,
                                   Long companyId, @NotNull LocalDate entryDate, @NotBlank String description,
-                                  @NotNull Long debitAccountId, @NotNull Long creditAccountId) {}
+                                  @NotNull Long debitAccountId, @NotNull Long creditAccountId, Long taxAccountId) {}
     public record JournalLine(@NotNull Long accountId, @NotNull BigDecimal debit, @NotNull BigDecimal credit, String description) {}
     public record JournalPost(@NotBlank String idempotencyKey, @NotNull Long fiscalYearId, @NotNull Long fiscalPeriodId,
                               Long companyId, @NotBlank String entryId, @NotNull LocalDate entryDate,
