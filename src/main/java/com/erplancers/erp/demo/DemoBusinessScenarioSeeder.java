@@ -57,7 +57,7 @@ public class DemoBusinessScenarioSeeder implements ApplicationRunner {
         List<StockItem> stockItems = all(StockItem.class);
         List<ProductStockLocation> stockLocations = all(ProductStockLocation.class);
         List<Purchase> purchases = all(Purchase.class);
-        List<PurchaseDetail> purchaseDetails = all(PurchaseDetail.class);
+        List<PurchaseDetail> purchaseDetails = all(PurchaseDetail.class);\n        List<Sale> sales = all(Sale.class);
         List<JournalEntry> journals = all(JournalEntry.class);
         List<Account> accounts = all(Account.class);
         List<FiscalYear> years = all(FiscalYear.class);
@@ -208,7 +208,7 @@ public class DemoBusinessScenarioSeeder implements ApplicationRunner {
         em.persist(line);
     }
 
-    private <T> List<T> all(Class<T> type) {
+    private boolean hasJournalLines(JournalEntry journal) {\n        return em.createQuery("select count(l) from JournalEntryLine l where l.journalEntry = :journal", Long.class)\n                .setParameter("journal", journal).getSingleResult() > 0;\n    }\n\n    private <T> List<T> all(Class<T> type) {
         try {
             return em.createQuery("select e from " + em.getMetamodel().entity(type).getName() + " e", type)
                     .getResultList();
