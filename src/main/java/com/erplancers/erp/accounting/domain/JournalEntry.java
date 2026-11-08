@@ -9,8 +9,9 @@ import lombok.Setter;
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import com.erplancers.erp.accounting.domain.JournalEntryLifecycleListener;
 
-@Entity @NoArgsConstructor @Getter @Setter
+@Entity @EntityListeners(JournalEntryLifecycleListener.class) @NoArgsConstructor @Getter @Setter
 @Table(uniqueConstraints = @UniqueConstraint(name = "uk_journal_idempotency", columnNames = "idempotency_key"))
 public class JournalEntry extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY) private Contact company;
@@ -25,4 +26,5 @@ public class JournalEntry extends EntityBase {
     @Column(name = "idempotency_payload_hash", length = 64) private String idempotencyPayloadHash;
     @OneToMany(mappedBy = "journalEntry", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<JournalEntryLine> lines = new LinkedHashSet<>();
+    @Transient private String persistedPostingFingerprint;
 }
