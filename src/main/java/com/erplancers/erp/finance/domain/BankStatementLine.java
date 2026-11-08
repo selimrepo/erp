@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
+@EntityListeners(BankStatementLineLifecycleListener.class)
 @Table(name="bank_statement_line",
     uniqueConstraints={@UniqueConstraint(name="uk_bank_statement_external_line", columnNames={"statement_id","external_line_id"}),
         @UniqueConstraint(name="uk_bank_statement_matched_payment", columnNames="matched_payment_id")})
