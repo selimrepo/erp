@@ -269,6 +269,7 @@ public class ErpWorkflowService {
         if ("CONVERTED".equals(next)) throw new IllegalArgumentException("Use the quote conversion command to create an order");
         if (Set.of("SENT", "ACCEPTED").contains(next) && (entity.getLines() == null || entity.getLines().isEmpty()))
             throw new IllegalStateException("A quote needs at least one product line before it can be sent or accepted");
+        entity.setTransitionValidated(true);
         entity.setStatus(next); em.flush();
         return result("quote", id, "status", entity.getStatus());
     }
@@ -281,6 +282,7 @@ public class ErpWorkflowService {
         if ("WON".equals(next) && (entity.getLeads() == null || entity.getLeads().isEmpty())
                 && (entity.getProducts() == null || entity.getProducts().isEmpty()))
             throw new IllegalStateException("A won opportunity must reference at least one qualified lead or product");
+        entity.setTransitionValidated(true);
         entity.setStatus(next); em.flush();
         return result("opportunity", id, "status", entity.getStatus());
     }
@@ -295,6 +297,7 @@ public class ErpWorkflowService {
                 throw new IllegalArgumentException("Resolution text is required before resolving a support case");
             entity.setResolution(request.resolution().trim());
         }
+        entity.setTransitionValidated(true);
         entity.setStatus(next); em.flush();
         return result("case", id, "status", entity.getStatus());
     }
@@ -307,6 +310,7 @@ public class ErpWorkflowService {
         if ("COMPLETED".equals(next) && entity.getProjectTasks() != null
                 && entity.getProjectTasks().stream().anyMatch(task -> !Set.of("DONE", "CANCELLED").contains(task.getStatus())))
             throw new IllegalStateException("A project cannot be completed while tasks remain open or blocked");
+        entity.setTransitionValidated(true);
         entity.setStatus(next); em.flush();
         return result("project", id, "status", entity.getStatus());
     }
@@ -320,6 +324,7 @@ public class ErpWorkflowService {
                 .setParameter("taskId", id).setMaxResults(2).getResultList();
         if (parents.stream().anyMatch(project -> !Set.of("ACTIVE").contains(project.getStatus())))
             throw new IllegalStateException("Project tasks can only be progressed while their project is ACTIVE");
+        entity.setTransitionValidated(true);
         entity.setStatus(next); em.flush();
         return result("projectTask", id, "status", entity.getStatus());
     }
