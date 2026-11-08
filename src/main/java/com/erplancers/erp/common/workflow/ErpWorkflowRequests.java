@@ -16,6 +16,7 @@ public final class ErpWorkflowRequests {
     public record PurchaseOrder(@NotBlank String idempotencyKey, @NotNull Long supplierId, @NotNull Long storeId, @NotNull Long currencyId,
                                 @NotEmpty List<@Valid PurchaseLine> lines, String notes) {}
     public record ReceivePurchase(@NotBlank String idempotencyKey) {}
+    public record OrderTransition(@NotBlank String idempotencyKey) {}
     public record InvoicePayment(@NotBlank String idempotencyKey, @NotNull @Positive Long amount,
                                  @NotNull Long contactId, @NotNull Long currencyId,
                                  @NotNull String direction, String reference, String description) {}
