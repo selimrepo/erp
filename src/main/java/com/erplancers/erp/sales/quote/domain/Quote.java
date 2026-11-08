@@ -32,6 +32,7 @@ public class Quote extends EntityBase {
     @Column(length = 24, nullable = false) private String status = "DRAFT";
     private LocalDate validUntil;
     @Column(length = 180, unique = true) private String conversionIdempotencyKey;
+    @Column(length = 64) private String conversionPayloadHash;
     @ManyToOne(fetch = FetchType.LAZY) private Order convertedOrder;
     @OneToMany(mappedBy = "quote", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<QuoteLine> lines = new LinkedHashSet<>();
