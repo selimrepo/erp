@@ -1,6 +1,13 @@
 -- Production integrity follow-up. Legacy core tables are optional on a fresh database;
 -- V1 creates the new workflow tables and Hibernate creates the legacy domain schema.
 ALTER TABLE IF EXISTS quote ADD COLUMN IF NOT EXISTS conversion_payload_hash VARCHAR(64);
+ALTER TABLE IF EXISTS erporder ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(180);
+ALTER TABLE IF EXISTS purchase ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(180);
+ALTER TABLE IF EXISTS payment_transaction ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(180);
+ALTER TABLE IF EXISTS journal_entry ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(180);
+ALTER TABLE IF EXISTS stock_movement ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(180);
+ALTER TABLE IF EXISTS invoice ADD COLUMN IF NOT EXISTS workflow_key VARCHAR(180);
+ALTER TABLE IF EXISTS quote ADD COLUMN IF NOT EXISTS conversion_idempotency_key VARCHAR(180);
 
 DO $$
 BEGIN
