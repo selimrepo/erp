@@ -31,9 +31,9 @@ public class Project extends EntityBase {
     String name;
     @Column(length = 24, nullable = false) private String status = "PLANNED";
     String description;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     Location location;
-    @ManyToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     Customer customer;
     @OneToMany(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
     Set<ProductDiscount> productDiscounts;
