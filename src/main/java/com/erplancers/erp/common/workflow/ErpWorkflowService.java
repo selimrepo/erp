@@ -673,6 +673,7 @@ public class ErpWorkflowService {
                 request.companyId(), sourceId, request.entryDate(), request.description(),
                 creditNote ? "REVERSAL" : (sourceType == InvoiceType.SALE ? "SALES" : "PURCHASE"), lines);
         Map<String,Object> posted = postJournal(journal);
+        invoice.setLedgerPostingValidated(true);
         invoice.setLedgerJournalEntry(required(JournalEntry.class, ((Number) posted.get("journalEntry")).longValue()));
         if (invoice.getInvoiceStatus() == InvoiceStatus.CONFIRMED) invoice.setInvoiceStatus(InvoiceStatus.POSTED);
         em.flush();
@@ -733,6 +734,7 @@ public class ErpWorkflowService {
                 List.of(new JournalLine(rule.getDebitAccount().getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, "Bank/cash or payable"),
                         new JournalLine(rule.getCreditAccount().getId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), "Receivable or bank/cash")));
         Map<String,Object> posted = postJournal(journal);
+        payment.setLedgerPostingValidated(true);
         payment.setLedgerJournalEntry(required(JournalEntry.class, ((Number) posted.get("journalEntry")).longValue()));
         em.flush();
         return result("payment", paymentId, "journalEntry", posted.get("journalEntry"), "eventType", eventType,
