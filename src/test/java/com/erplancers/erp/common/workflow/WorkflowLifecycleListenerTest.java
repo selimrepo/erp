@@ -19,6 +19,9 @@ class WorkflowLifecycleListenerTest {
         listener.capturePersistedState(supportCase);
         supportCase.setStatus("IN_PROGRESS");
         assertDoesNotThrow(() -> listener.validateTransition(supportCase));
+        assertEquals("OPEN", supportCase.getPersistedWorkflowState());
+        listener.captureUpdatedState(supportCase);
+        assertEquals("IN_PROGRESS", supportCase.getPersistedWorkflowState());
     }
 
     @Test
