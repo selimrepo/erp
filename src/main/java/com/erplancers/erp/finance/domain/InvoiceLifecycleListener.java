@@ -22,7 +22,8 @@ public class InvoiceLifecycleListener {
         validate(invoice);
         if (invoice.getInvoiceStatus() == null || invoice.getInvoiceType() == null)
             throw new IllegalStateException("Invoice type and status are required");
-        if (invoice.getInvoiceStatus() == InvoiceStatus.CONFIRMED && !invoice.isCreationValidated())
+        if (invoice.getInvoiceStatus() == InvoiceStatus.CONFIRMED
+                && (!invoice.isCreationValidated() || invoice.getWorkflowKey() == null || invoice.getWorkflowKey().isBlank()))
             throw new IllegalStateException("Confirmed invoices can only be created by sales, procurement or credit-note workflows");
         if (isSettledState(invoice.getInvoiceStatus()) || invoice.getInvoiceStatus() == InvoiceStatus.POSTED
                 || value(invoice.getPaidAmount()) != 0 || value(invoice.getCreditedAmount()) != 0)
