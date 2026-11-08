@@ -21,6 +21,8 @@ public class InvoiceLifecycleListener {
         validate(invoice);
         if (invoice.getInvoiceStatus() == null || invoice.getInvoiceType() == null)
             throw new IllegalStateException("Invoice type and status are required");
+        if (invoice.getInvoiceStatus() == InvoiceStatus.CONFIRMED && !invoice.isCreationValidated())
+            throw new IllegalStateException("Confirmed invoices can only be created by sales, procurement or credit-note workflows");
         if (isSettledState(invoice.getInvoiceStatus()) || invoice.getInvoiceStatus() == InvoiceStatus.POSTED
                 || value(invoice.getPaidAmount()) != 0 || value(invoice.getCreditedAmount()) != 0)
             throw new IllegalStateException("New invoices must be created unsettled as DRAFT or CONFIRMED and then processed by workflow commands");
@@ -56,6 +58,7 @@ public class InvoiceLifecycleListener {
         invoice.setPersistedLedgerJournalEntryId(invoice.getLedgerJournalEntry() == null ? null : invoice.getLedgerJournalEntry().getId());
         invoice.setSettlementValidated(false);
         invoice.setLedgerPostingValidated(false);
+        invoice.setCreationValidated(false);
     }
 
     @PreRemove
