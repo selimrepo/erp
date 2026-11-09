@@ -79,6 +79,20 @@ class TaxPolicyServiceIntegrationTest {
     }
 
     @Test
+    void createsListsAndDeactivatesPoliciesWithoutDeletingAuditHistory() {
+        var command = new TaxPolicyService.PolicyCommand("Managed policy", null, "US-CA", "SALE",
+                "STANDARD", new BigDecimal("8.25"), LocalDate.of(2026, 1, 1),
+                LocalDate.of(2026, 12, 31), 5, false, true);
+
+        var created = service.createPolicy(command);
+        assertThat(service.listPolicies()).extracting(TaxPolicyService.PolicyView::id).contains(created.id());
+
+        var deactivated = service.deactivatePolicy(created.id());
+        assertThat(deactivated.active()).isFalse();
+        assertThat(policies.findById(created.id())).isPresent();
+    }
+
+    @Test
     void rejectsRatesAboveOneHundredPercent() {
         TaxPolicy invalid = policy("Invalid rate", "TR", "SALE", "STANDARD", "100.01", 10, false);
 
