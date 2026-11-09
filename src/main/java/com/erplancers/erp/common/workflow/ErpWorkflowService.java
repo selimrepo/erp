@@ -83,7 +83,19 @@ public class ErpWorkflowService {
             invoiceTaxComponents.addAll(tax.components());
             stock.setStockAdjustmentValidated(true); stock.setQuantity(available - input.quantity());
             OrderLine line = new OrderLine(); line.setOrder(order); line.setProduct(product);
-            line.setQuantity(input.quantity()); line.setUnitPrice(input.unitPrice()); line.setTaxRate(tax.rate()); line.setTaxPolicy(tax.policy()); line.setTaxAmount(tax.taxAmount()); line.setWithholdingAmount(tax.withholdingAmount()); line.setReverseChargeTaxAmount(tax.reverseChargeTaxAmount()); line.setLineTotal(lineTotal);
+            line.setQuantity(input.quantity()); line.setUnitPrice(input.unitPrice()); line.setTaxRate(tax.rate()); line.setTaxPolicy(tax.policy());
+            line.setTaxAmount(tax.taxAmount()); line.setWithholdingAmount(tax.withholdingAmount());
+            line.setReverseChargeTaxAmount(tax.reverseChargeTaxAmount()); line.setLineTotal(lineTotal);
+            line.setTaxExemptionCode(input.exemptionCode()); line.setTaxEvidenceType(input.evidenceType());
+            line.setTaxEvidenceReference(input.evidenceReference());
+            for (TaxComponentSnapshot snapshot : tax.components()) {
+                OrderLineTaxComponent component = new OrderLineTaxComponent();
+                component.setOrderLine(line); component.setName(snapshot.name()); component.setComponentType(snapshot.type());
+                component.setRate(snapshot.rate()); component.setAmount(snapshot.amount());
+                component.setOutputTaxAccount(snapshot.outputAccountId() == null ? null : required(Account.class, snapshot.outputAccountId()));
+                component.setInputTaxAccount(snapshot.inputAccountId() == null ? null : required(Account.class, snapshot.inputAccountId()));
+                line.getTaxComponents().add(component);
+            }
             order.getLines().add(line);
             movement(product, store, input.quantity(), "SALE_RESERVATION", "ORDER", order.getId().toString(), request.idempotencyKey()+":sale:"+i);
         }
@@ -170,7 +182,10 @@ public class ErpWorkflowService {
             long lineTotal = tax.grossAmount(); total=Math.addExact(total,lineTotal); totalTax=Math.addExact(totalTax,tax.taxAmount());
             PurchaseDetail detail = new PurchaseDetail(); detail.setPurchase(purchase); detail.setSupplier(supplier);
             detail.setProduct(product); detail.setQuantity(input.quantity()); detail.setPrice(input.unitPrice());
-            detail.setTaxRate(tax.rate()); detail.setTaxPolicy(tax.policy()); detail.setTaxAmount(tax.taxAmount()); detail.setWithholdingAmount(tax.withholdingAmount()); detail.setReverseChargeTaxAmount(tax.reverseChargeTaxAmount()); detail.setLineTotal(lineTotal);
+            detail.setTaxRate(tax.rate()); detail.setTaxPolicy(tax.policy()); detail.setTaxAmount(tax.taxAmount());
+            detail.setWithholdingAmount(tax.withholdingAmount()); detail.setReverseChargeTaxAmount(tax.reverseChargeTaxAmount());
+            detail.setTaxExemptionCode(input.exemptionCode()); detail.setTaxEvidenceType(input.evidenceType());
+            detail.setTaxEvidenceReference(input.evidenceReference()); detail.setLineTotal(lineTotal);
             for (TaxComponentSnapshot snapshot : tax.components()) {
                 PurchaseDetailTaxComponent component = new PurchaseDetailTaxComponent();
                 component.setPurchaseDetail(detail); component.setName(snapshot.name()); component.setComponentType(snapshot.type());
