@@ -17,6 +17,7 @@ import com.erplancers.erp.projects.domain.Project;
 import com.erplancers.erp.projects.domain.ProjectTask;
 import com.erplancers.erp.support.domain.Case;
 import com.erplancers.erp.tax.domain.TaxPolicy;
+import com.erplancers.erp.tax.domain.TaxComponentType;
 import com.erplancers.erp.tax.domain.TaxRate;
 import com.erplancers.erp.tax.service.TaxPolicyService;
 import jakarta.persistence.EntityManager;
