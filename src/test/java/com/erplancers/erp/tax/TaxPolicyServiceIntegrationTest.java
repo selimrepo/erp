@@ -126,6 +126,21 @@ class TaxPolicyServiceIntegrationTest {
     }
 
     @Test
+    void resolvesTaxInclusiveCompoundComponentsWithConsistentGrossRounding() {
+        TaxPolicy policy = policy("Inclusive compound tax", "TR", "SALE", "STANDARD", "0", 1, true);
+        policy.getComponents().add(component(policy, "VAT", TaxComponentType.STANDARD, "10", 1, null, null));
+        policy.getComponents().add(component(policy, "Compound levy", TaxComponentType.COMPOUND, "5", 2, null, null));
+        policies.saveAndFlush(policy);
+
+        var result = service.calculateDetailed(null, "TR", "SALE", "STANDARD",
+                LocalDate.of(2026, 11, 9), 11_550L, null, null, null);
+
+        assertThat(result.netAmount()).isEqualTo(10_000L);
+        assertThat(result.taxAmount()).isEqualTo(1_550L);
+        assertThat(result.grossAmount()).isEqualTo(11_550L);
+    }
+
+    @Test
     void validatesExemptionCodeEvidenceTypeAndReferenceBeforeZeroTaxTreatment() {
         TaxPolicy exempt = policy("Export exemption", "TR", "SALE", "EXPORT", "0", 1, false);
         exempt.setTreatment(TaxTreatment.EXEMPT);
