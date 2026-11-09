@@ -171,6 +171,14 @@ public class ErpWorkflowService {
             PurchaseDetail detail = new PurchaseDetail(); detail.setPurchase(purchase); detail.setSupplier(supplier);
             detail.setProduct(product); detail.setQuantity(input.quantity()); detail.setPrice(input.unitPrice());
             detail.setTaxRate(tax.rate()); detail.setTaxPolicy(tax.policy()); detail.setTaxAmount(tax.taxAmount()); detail.setWithholdingAmount(tax.withholdingAmount()); detail.setReverseChargeTaxAmount(tax.reverseChargeTaxAmount()); detail.setLineTotal(lineTotal);
+            for (TaxComponentSnapshot snapshot : tax.components()) {
+                PurchaseDetailTaxComponent component = new PurchaseDetailTaxComponent();
+                component.setPurchaseDetail(detail); component.setName(snapshot.name()); component.setComponentType(snapshot.type());
+                component.setRate(snapshot.rate()); component.setAmount(snapshot.amount());
+                component.setOutputTaxAccount(snapshot.outputAccountId() == null ? null : required(Account.class, snapshot.outputAccountId()));
+                component.setInputTaxAccount(snapshot.inputAccountId() == null ? null : required(Account.class, snapshot.inputAccountId()));
+                detail.getTaxComponents().add(component);
+            }
             purchase.getPurchaseDetails().add(detail);
         }
         purchase.setTotalAmount(total); purchase.setTaxAmount(totalTax); em.flush();
@@ -380,10 +388,20 @@ public class ErpWorkflowService {
         purchase.setStatus(fullyReceived ? "RECEIVED" : "PARTIALLY_RECEIVED");
         purchase.setReceiptIdempotencyKey(idempotencyKey);
         if (fullyReceived && purchase.getInvoice() == null) {
+            long withholding = purchase.getPurchaseDetails().stream().mapToLong(d -> d.getWithholdingAmount() == null ? 0L : d.getWithholdingAmount()).sum();
+            long reverseCharge = purchase.getPurchaseDetails().stream().mapToLong(d -> d.getReverseChargeTaxAmount() == null ? 0L : d.getReverseChargeTaxAmount()).sum();
+            List<TaxComponentSnapshot> componentSnapshots = purchase.getPurchaseDetails().stream()
+                    .flatMap(d -> d.getTaxComponents().stream())
+                    .map(c -> new TaxComponentSnapshot(c.getName(), c.getComponentType(), c.getRate(), c.getAmount(),
+                            c.getOutputTaxAccount() == null ? null : c.getOutputTaxAccount().getId(),
+                            c.getInputTaxAccount() == null ? null : c.getInputTaxAccount().getId())).toList();
             Invoice invoice = new Invoice(); invoice.setInvoiceName("INV-P-" + purchaseId);
             invoice.setInvoiceDescription("Supplier invoice for purchase " + purchaseId);
             invoice.setAmount(purchase.getTotalAmount()); invoice.setPaidAmount(0L);
-            invoice.setTaxAmount(purchase.getTaxAmount()); invoice.setNetAmount(purchase.getTotalAmount()-purchase.getTaxAmount());
+            invoice.setTaxAmount(purchase.getTaxAmount());
+            invoice.setWithholdingAmount(withholding); invoice.setReverseChargeTaxAmount(reverseCharge);
+            invoice.setNetAmount(Math.addExact(purchase.getTotalAmount(), withholding) - purchase.getTaxAmount());
+            attachTaxComponents(invoice, componentSnapshots);
             invoice.setCurrency(purchase.getCurrency()); invoice.setInvoiceType(InvoiceType.PURCHASE);
             invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED); invoice.setWorkflowKey("purchase:" + purchase.getIdempotencyKey());
             if (purchase.getSupplier().getContact()!=null) invoice.setBillingContacts(Set.of(purchase.getSupplier().getContact()));
