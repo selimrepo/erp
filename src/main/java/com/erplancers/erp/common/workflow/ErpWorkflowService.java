@@ -689,6 +689,13 @@ public class ErpWorkflowService {
                     || !Objects.equals(note.getTaxEvidenceType(), request.evidenceType())
                     || !Objects.equals(note.getTaxEvidenceReference(), request.evidenceReference()))
                 throw new IllegalArgumentException("Credit note idempotency key was reused with a different payload");
+            if (request.accountingPosting() != null && note.getLedgerJournalEntry() == null) {
+                Invoice source = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
+                if (source == null || source.getLedgerJournalEntry() == null)
+                    throw new IllegalStateException("A credit note can only be posted when its original invoice has been posted to the ledger");
+                em.flush();
+                postInvoiceToLedger(note.getId(), request.accountingPosting());
+            }
             return result("creditNote", note.getId(), "originalInvoice", invoiceId, "idempotentReplay", true);
         }
         Invoice original = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
