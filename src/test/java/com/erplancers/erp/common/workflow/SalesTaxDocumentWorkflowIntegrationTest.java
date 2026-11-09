@@ -61,10 +61,12 @@ class SalesTaxDocumentWorkflowIntegrationTest {
             assertThat(invoice.getAmount()).isEqualTo(2_400L);
             assertThat(invoice.getNetAmount()).isEqualTo(2_000L);
             assertThat(invoice.getTaxAmount()).isEqualTo(400L);
+            assertThat(invoice.getTaxComponents()).hasSize(1);
             assertThat(order.getLines()).hasSize(1);
             OrderLine line = order.getLines().iterator().next();
             assertThat(line.getTaxPolicy()).isNotNull();
             assertThat(line.getTaxPolicy().getId()).isEqualTo(fixture.policyId());
+            assertThat(line.getTaxComponents()).hasSize(1);
             assertThat(entityManager.createQuery(
                     "select count(m) from StockMovement m where m.idempotencyKey=:key", Long.class)
                     .setParameter("key", "sale-tax-success:sale:0").getSingleResult()).isEqualTo(1L);
@@ -176,6 +178,8 @@ class SalesTaxDocumentWorkflowIntegrationTest {
             assertThat(stock.getQuantity()).isEqualTo(10L);
             assertThat(purchase.getStatus()).isEqualTo("ORDERED");
             assertThat(purchase.getInvoice()).isNull();
+            assertThat(purchase.getPurchaseDetails()).hasSize(1);
+            assertThat(purchase.getPurchaseDetails().iterator().next().getTaxComponents()).hasSize(1);
             assertThat(entityManager.createQuery(
                     "select count(r) from PurchaseReceipt r where r.idempotencyKey=:key", Long.class)
                     .setParameter("key", "purchase-tax-receipt-rollback").getSingleResult()).isZero();
