@@ -10,9 +10,10 @@ public class OrderLineLifecycleListener {
             throw new IllegalStateException("Order line quantity must be positive and unit price non-negative");
         long entered = Math.multiplyExact(line.getQuantity(), line.getUnitPrice());
         long tax = line.getTaxAmount() == null ? 0L : line.getTaxAmount();
+        long withholding = line.getWithholdingAmount() == null ? 0L : line.getWithholdingAmount();
         boolean inclusive = line.getTaxPolicy() != null && line.getTaxPolicy().isTaxInclusive();
-        long expected = inclusive ? entered : Math.addExact(entered, tax);
-        if (tax < 0 || (inclusive && tax > entered) || expected != line.getLineTotal())
+        long expected = inclusive ? entered - withholding : Math.subtractExact(Math.addExact(entered, tax), withholding);
+        if (tax < 0 || withholding < 0 || (inclusive && Math.addExact(tax, withholding) > entered) || expected != line.getLineTotal())
             throw new IllegalStateException("Order line total is inconsistent with its tax-inclusive/exclusive policy");
     }
 
