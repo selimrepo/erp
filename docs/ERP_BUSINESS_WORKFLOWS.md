@@ -58,6 +58,8 @@ The tax module provides reusable, date-effective `TaxPolicy` records. A policy c
 
 A policy must have a non-negative rate no greater than 100%, a valid date interval and a non-negative priority. The service fails closed when no active policy matches. The Flyway migration creates the policy table and lookup indexes.
 
+Authenticated policy management is available at `/api/tax-policies`: GET lists policies, POST creates one, PUT updates one, and POST `/{id}/deactivate` disables it without deleting history. POST `/calculate` resolves a policy and returns net, tax and gross minor-unit amounts. These endpoints require the `tax-policy` READ/WRITE authorization resource.
+
 This is a generic policy engine, not a preconfigured legal-tax catalogue. Tenants must configure rates, exemptions and effective dates for their jurisdictions. Reverse charge, withholding, compound taxes, multiple tax components and statutory invoice reporting are not implied by this basic rate model. The calculation service must be invoked by each invoice-creation workflow before it can be considered end-to-end tax automation.
 
 ## Journal posting invariants
