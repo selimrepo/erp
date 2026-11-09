@@ -1,6 +1,6 @@
 # Erplancers ERP
 
-**Erplancers ERP** is an open-source, modular enterprise resource planning application built around a single Spring Boot backend and a React/TypeScript web client. It combines operational business workflows with finance and accounting, sales and procurement, inventory, CRM, configurable tax policies, reporting, business intelligence, and an optional embedded analytics engine.
+**Erplancers ERP** is an open-source, modular enterprise resource planning application built around a single Spring Boot backend and a React/TypeScript web client. It combines operational business workflows with finance and accounting, sales and procurement, inventory, CRM, configurable tax policies, reporting, and JPA-based business intelligence and analytics.
 
 > **Development status:** actively developed. This repository is an evolving ERP platform, not a claim of jurisdiction-certified accounting or tax compliance. Review the current implementation, CI results, migrations, authorization rules, and deployment configuration before using real business data.
 
@@ -16,7 +16,7 @@
 - [REST API](#rest-api)
 - [Tax policy engine](#tax-policy-engine)
 - [Transactional workflows and accounting](#transactional-workflows-and-accounting)
-- [Embedded analytics](#embedded-analytics)
+- [Business intelligence and analytics](#business-intelligence-and-analytics)
 - [Configuration](#configuration)
 - [Testing and CI](#testing-and-ci)
 - [Security and production readiness](#security-and-production-readiness)
@@ -33,7 +33,7 @@ Erplancers ERP is designed as an extensible business application rather than a c
 - **Accounting controls:** fiscal-year and fiscal-period validation, posting-account eligibility, balanced journal checks, and source-document posting flows.
 - **Metadata-driven access:** registered entities can be discovered through a generic resource API with resource/action authorization checks.
 - **Reporting and BI:** operational reports, dimension/measure queries, entity profiling, advanced analysis, OLAP cubes, and drill-down.
-- **Optional analytics execution:** an embedded Spark-based job engine with bounded JPA extraction. It is disabled until its dataset catalogue and access scope are configured.
+- **JPA-based analytics:** database-side aggregation, advanced statistical analysis, OLAP exploration, and drill-down without a separate distributed analytics runtime.
 - **Modern web client:** React, TypeScript, Vite, TanStack Query, React Router, and PrimeReact.
 
 ## Business capabilities
@@ -50,7 +50,7 @@ Exact operations and exposed resources evolve with the codebase. The OpenAPI doc
 | Tax | Tax policies, tax calculations, exemptions/evidence, component-level tax snapshots, withholding, and reverse charge |
 | CRM | Contacts, leads/opportunities, and sales quote conversion |
 | Projects and support | Project/task and support-case lifecycle workflows |
-| BI and analytics | Reports, business intelligence, OLAP exploration, analytics jobs, and business rules |
+| BI and analytics | Database-backed aggregates, advanced analysis, OLAP cubes, drill-down, saved reports, scheduled execution, and business rules |
 | Platform | Authentication, authorization, metadata-driven resources, API documentation, and operational health |
 
 ## Architecture
@@ -63,7 +63,7 @@ The backend is intentionally deployed as a **single Spring Boot application**. D
 - The React application is developed in **frontend/**. The root Dockerfile builds it and copies its static output into the Spring Boot application.
 - Docker Compose currently defines PostgreSQL, the backend, and the frontend web container.
 - The current Compose file does **not** start Kafka. Provision and configure a broker separately if a deployment enables broker-backed integrations.
-- The optional Spark analytics engine reads through configured JPA entity/attribute mappings rather than accepting arbitrary SQL or entity names from API callers.
+- BI and analytics use the ERP's JPA persistence layer and database queries; no Spark cluster, external analytics worker, or dataset catalogue is required.
 
 ### Main source directories
 
@@ -73,7 +73,7 @@ The backend is intentionally deployed as a **single Spring Boot application**. D
 | src/main/resources/db/migration/ | Flyway schema migrations |
 | src/main/resources/ | Spring configuration and static resources |
 | frontend/ | Main React/TypeScript application and independent module frontend builds |
-| deploy/ | Example configuration for the optional analytics engine |
+| deploy/ | Deployment-specific operational configuration, when required |
 | .github/workflows/ | GitHub Actions workflows |
 
 ## Technology stack
@@ -85,7 +85,7 @@ The backend is intentionally deployed as a **single Spring Boot application**. D
 | Databases | H2 for convenient local development; PostgreSQL for container deployment |
 | API | Spring MVC, Bean Validation, springdoc OpenAPI / Swagger UI |
 | Frontend | React 19, TypeScript, Vite, React Router, TanStack Query, PrimeReact |
-| Analytics | Apache Spark SQL / MLlib integration, optional job execution |
+| Analytics | Spring Data JPA, database-side aggregation, in-process statistical analysis, OLAP and BI report execution |
 | Integration and scheduling | Spring Kafka client, Spring Batch, Quartz, JobRunr, Apache Camel |
 | Build and tests | Gradle Wrapper, JUnit Platform, Testcontainers, Vitest |
 | Containers | Docker multi-stage build, Docker Compose, Nginx frontend container |
@@ -367,22 +367,22 @@ Journal and source-document posting should be treated as a controlled accounting
 
 See [docs/ERP_BUSINESS_WORKFLOWS.md](docs/ERP_BUSINESS_WORKFLOWS.md) for more workflow detail.
 
-## Embedded analytics
+## Business intelligence and analytics
 
-The optional embedded Spark engine is **disabled by default**. Do not enable it until dataset mappings and access grants have been reviewed.
+The BI and analytics capabilities run inside the Spring Boot application and use the existing JPA persistence model. Analytical aggregation is delegated to the relational database where possible; advanced statistical analysis operates on bounded result sets returned by JPA queries. No Spark runtime, distributed compute cluster, external dataset catalogue, or separate analytics deployment is part of this project.
 
-1. Copy the example catalogue:
-   ```bash
-   cp deploy/analytics-datasets.properties.example deploy/analytics-datasets.properties
-   ```
-2. Replace placeholders with registered JPA entity names and valid JPA attribute paths from the deployed model.
-3. Review each dataset's scope relation and tenant/row-level access grants. Never allow an API request to choose arbitrary entities or attributes.
-4. Configure the required analytics properties and enable the engine only after the catalogue and permissions are ready.
-5. Restart/recreate the backend and inspect its logs.
+The current capabilities include:
 
-The backend container configuration mounts deploy/ read-only at /run/config. Keep deployment-specific catalogue files out of version control. JPA extraction is paged and capped at one million rows per job; use bounded date windows or approved aggregate/projection entities for larger workloads.
+- **Database-backed aggregation:** grouped dimensions, measures, filters, ordering, and bounded result sets.
+- **Advanced analysis:** numeric field profiling, descriptive statistics, quartiles, outlier counts, and correlation matrices. Aggregate query results can also be analyzed.
+- **OLAP exploration:** cube/catalogue discovery, multidimensional aggregation, and drill-down through the BI API.
+- **Saved BI reports:** persist report definitions, edit and delete saved reports, and share reports with users or roles.
+- **Scheduled execution:** enqueue due reports, execute queued work in the application, retain execution status/results, and optionally deliver completed reports by email.
+- **React BI workspace:** query resources, define calculated measures, manage saved reports and schedules, queue executions, and monitor execution status.
 
-See [deploy/README.md](deploy/README.md) and [deploy/analytics-datasets.properties.example](deploy/analytics-datasets.properties.example). Kafka-backed notifications require a separately provisioned and configured broker; the repository's current Compose stack does not provide one.
+All data access remains subject to the application's resource/action authorization and the relevant JPA/database access rules. Keep query dimensions, metrics, limits, and result sizes bounded; validate tenant and row-level access whenever adding a new analytics endpoint. See the `/api/analytics` and `/api/bi` API groups in Swagger UI for the runtime contract.
+
+Kafka-backed notifications, where enabled elsewhere in the application, require a separately provisioned broker; the repository's current Compose stack does not provide one.
 
 ## Configuration
 
@@ -398,9 +398,9 @@ Common environment/configuration points include:
 | SPRING_DATASOURCE_USERNAME / SPRING_DATASOURCE_PASSWORD | Database credentials |
 | SPRING_JPA_HIBERNATE_DDL_AUTO | Hibernate schema-generation behavior |
 | spring.flyway.enabled / ERP_FLYWAY_ENABLED | Flyway migration enablement |
-| ANALYTICS_ENGINE_ENABLED | Enables the optional analytics engine after configuration |
 
-The application supports standard Spring Boot externalized configuration. Confirm effective property values for the active profile before deployment. Never commit secrets or deployment-specific analytics mappings.
+
+The application supports standard Spring Boot externalized configuration. Confirm effective property values for the active profile before deployment. Never commit secrets.
 
 ## Testing and CI
 
@@ -445,7 +445,6 @@ Before exposing an instance to users or loading production data:
 - Verify resource-level, action-level, tenant, and row-level authorization across every service and nested relationship.
 - Configure and test account determination, fiscal periods, tax policies, and tax component mappings before posting real documents.
 - Review tax treatments with qualified professionals for every jurisdiction in which the system is used.
-- Configure analytics dataset allow-lists and row-scope grants before enabling Spark.
 - Secure Actuator and additional operational endpoints; expose only the health/metrics information needed by monitoring.
 - Test concurrency, idempotency, failure recovery, and PostgreSQL behavior using the same database engine/version planned for deployment.
 
@@ -454,7 +453,7 @@ Before exposing an instance to users or loading production data:
 ```text
 .
 ├── .github/workflows/       # GitHub Actions
-├── deploy/                  # Optional analytics configuration examples
+├── deploy/                  # Deployment configuration examples (if present)
 ├── docs/                    # Business workflow contracts and project docs
 ├── frontend/                # React/TypeScript application and module builds
 ├── gradle/                  # Gradle wrapper support
