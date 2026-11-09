@@ -980,35 +980,45 @@ public class ErpWorkflowService {
      * without a legacy ID must resolve a date-effective generic policy; no silent zero-tax
      * fallback is allowed when a policy is missing.
      */
-    private TaxCalculation calculateTax(long enteredAmount, Long taxRateId, Product product, Customer customer,
+    /**
+     * Generic, date-effective tax policies take precedence for all new documents.
+     * An explicitly supplied legacy TaxRate is used only as a migration fallback
+     * when no generic policy matches, so old integrations continue to work without
+     * silently overriding a tenant's new policy configuration.
+     */
+    private TaxCalculation calculateTax(long enteredAmount, Long legacyTaxRateId, Product product, Customer customer,
                                         String transactionType, String jurisdictionCode, String requestedCategory,
                                         Contact taxSubject) {
-        if (taxRateId != null) {
-            TaxRate rate = required(TaxRate.class, taxRateId);
-            Long selectedTaxRateId = rate.getId();
-            if (product.getTaxClass() != null && (product.getTaxClass().getTaxRates() == null
-                    || product.getTaxClass().getTaxRates().stream().noneMatch(candidate -> Objects.equals(candidate.getId(), selectedTaxRateId))))
-                throw new IllegalArgumentException("Selected tax rate does not belong to the product tax class");
-            Long customerGroupId = customer == null || customer.getCustomerGroup() == null ? null : customer.getCustomerGroup().getId();
-            if (rate.getCustomerGroups() != null && !rate.getCustomerGroups().isEmpty()
-                    && (customerGroupId == null || rate.getCustomerGroups().stream()
-                    .noneMatch(group -> Objects.equals(group.getId(), customerGroupId))))
-                throw new IllegalArgumentException("Selected tax rate does not apply to the customer's group");
-            float percentage = rate.getRate();
-            if (!Float.isFinite(percentage) || percentage < 0f || percentage > 100f)
-                throw new IllegalStateException("Tax rate must be between 0 and 100 percent");
-            long tax = BigDecimal.valueOf(enteredAmount).multiply(new BigDecimal(Float.toString(percentage)))
-                    .divide(BigDecimal.valueOf(100), 0, java.math.RoundingMode.HALF_UP).longValueExact();
-            return new TaxCalculation(rate, null, enteredAmount, tax, Math.addExact(enteredAmount, tax));
-        }
-
         String category = requestedCategory;
         if ((category == null || category.isBlank()) && product.getTaxClass() != null)
             category = product.getTaxClass().getTitle();
-        TaxPolicyService.TaxCalculation result = taxPolicies.calculate(taxSubject, jurisdictionCode,
-                transactionType, category, LocalDate.now(), enteredAmount);
-        TaxPolicy policy = required(TaxPolicy.class, result.policyId());
-        return new TaxCalculation(null, policy, result.netAmount(), result.taxAmount(), result.grossAmount());
+        try {
+            TaxPolicyService.TaxCalculation result = taxPolicies.calculate(taxSubject, jurisdictionCode,
+                    transactionType, category, LocalDate.now(), enteredAmount);
+            TaxPolicy policy = required(TaxPolicy.class, result.policyId());
+            return new TaxCalculation(null, policy, result.netAmount(), result.taxAmount(), result.grossAmount());
+        } catch (IllegalStateException noMatchingPolicy) {
+            if (legacyTaxRateId == null
+                    || !Objects.equals(noMatchingPolicy.getMessage(), "No active tax policy matches the transaction"))
+                throw noMatchingPolicy;
+        }
+
+        TaxRate rate = required(TaxRate.class, legacyTaxRateId);
+        Long selectedTaxRateId = rate.getId();
+        if (product.getTaxClass() != null && (product.getTaxClass().getTaxRates() == null
+                || product.getTaxClass().getTaxRates().stream().noneMatch(candidate -> Objects.equals(candidate.getId(), selectedTaxRateId))))
+            throw new IllegalArgumentException("Selected tax rate does not belong to the product tax class");
+        Long customerGroupId = customer == null || customer.getCustomerGroup() == null ? null : customer.getCustomerGroup().getId();
+        if (rate.getCustomerGroups() != null && !rate.getCustomerGroups().isEmpty()
+                && (customerGroupId == null || rate.getCustomerGroups().stream()
+                .noneMatch(group -> Objects.equals(group.getId(), customerGroupId))))
+            throw new IllegalArgumentException("Selected tax rate does not apply to the customer's group");
+        float percentage = rate.getRate();
+        if (!Float.isFinite(percentage) || percentage < 0f || percentage > 100f)
+            throw new IllegalStateException("Tax rate must be between 0 and 100 percent");
+        long tax = BigDecimal.valueOf(enteredAmount).multiply(new BigDecimal(Float.toString(percentage)))
+                .divide(BigDecimal.valueOf(100), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+        return new TaxCalculation(rate, null, enteredAmount, tax, Math.addExact(enteredAmount, tax));
     }
 
     private record TaxCalculation(TaxRate rate, TaxPolicy policy, long netAmount,
