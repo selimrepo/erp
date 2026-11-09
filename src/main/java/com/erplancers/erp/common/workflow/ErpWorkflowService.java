@@ -16,6 +16,9 @@ import com.erplancers.erp.crm.opportunity.domain.Opportunity;
 import com.erplancers.erp.projects.domain.Project;
 import com.erplancers.erp.projects.domain.ProjectTask;
 import com.erplancers.erp.support.domain.Case;
+import com.erplancers.erp.tax.domain.TaxPolicy;
+import com.erplancers.erp.tax.domain.TaxRate;
+import com.erplancers.erp.tax.service.TaxPolicyService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.TypedQuery;
@@ -33,7 +36,8 @@ import java.util.*;
 @Service
 public class ErpWorkflowService {
     private final EntityManager em;
-    public ErpWorkflowService(EntityManager em) { this.em = em; }
+    private final TaxPolicyService taxPolicies;
+    public ErpWorkflowService(EntityManager em, TaxPolicyService taxPolicies) { this.em = em; this.taxPolicies = taxPolicies; }
 
     @Transactional
     public Map<String,Object> createSalesOrder(ErpWorkflowRequests.SalesOrder request) {
@@ -58,7 +62,7 @@ public class ErpWorkflowService {
         order.setIdempotencyKey(request.idempotencyKey()); order.setIdempotencyPayloadHash(requestHash); order.setTotalAmount(0L);
         order.setOrderCreationValidated(true);
         em.persist(order); em.flush();
-        long total = 0, totalTax = 0;
+        long total = 0, totalTax = 0, totalNet = 0;
         for (int i=0;i<request.lines().size();i++) {
             ErpWorkflowRequests.SalesLine input = request.lines().get(i);
             Product product = required(Product.class, input.productId());
@@ -66,13 +70,14 @@ public class ErpWorkflowService {
             long available = stock.getQuantity() == null ? 0 : stock.getQuantity();
             if (available < input.quantity()) throw new IllegalStateException("Insufficient stock for product " + product.getId() + ": available " + available);
             long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
-            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, customer);
-            long lineTotal = Math.addExact(netAmount, tax.amount());
+            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, customer, "SALE", input.jurisdictionCode(), input.taxCategory(), customer.getContact());
+            long lineTotal = tax.grossAmount();
             total = Math.addExact(total, lineTotal);
-            totalTax = Math.addExact(totalTax, tax.amount());
+            totalNet = Math.addExact(totalNet, tax.netAmount());
+            totalTax = Math.addExact(totalTax, tax.taxAmount());
             stock.setStockAdjustmentValidated(true); stock.setQuantity(available - input.quantity());
             OrderLine line = new OrderLine(); line.setOrder(order); line.setProduct(product);
-            line.setQuantity(input.quantity()); line.setUnitPrice(input.unitPrice()); line.setTaxRate(tax.rate()); line.setTaxAmount(tax.amount()); line.setLineTotal(lineTotal);
+            line.setQuantity(input.quantity()); line.setUnitPrice(input.unitPrice()); line.setTaxRate(tax.rate()); line.setTaxPolicy(tax.policy()); line.setTaxAmount(tax.taxAmount()); line.setLineTotal(lineTotal);
             order.getLines().add(line);
             movement(product, store, input.quantity(), "SALE_RESERVATION", "ORDER", order.getId().toString(), request.idempotencyKey()+":sale:"+i);
         }
@@ -81,7 +86,7 @@ public class ErpWorkflowService {
             Invoice invoice = new Invoice(); invoice.setInvoiceName("INV-S-" + order.getId());
             invoice.setInvoiceDescription("Sales order " + order.getId()); invoice.setAmount(total);
             invoice.setPaidAmount(0L); invoice.setCurrency(currency); invoice.setInvoiceType(InvoiceType.SALE);
-            invoice.setNetAmount(total - totalTax); invoice.setTaxAmount(totalTax);
+            invoice.setNetAmount(totalNet); invoice.setTaxAmount(totalTax);
             invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED); invoice.setWorkflowKey("sales:"+request.idempotencyKey());
             invoice.setBillingContacts(Set.of(contact)); invoice.setShippingContacts(Set.of(contact));
             invoice.setCreationValidated(true);
@@ -152,11 +157,11 @@ public class ErpWorkflowService {
         for (ErpWorkflowRequests.PurchaseLine input : request.lines()) {
             Product product = required(Product.class, input.productId());
             long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
-            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, null);
-            long lineTotal = Math.addExact(netAmount, tax.amount()); total=Math.addExact(total,lineTotal); totalTax=Math.addExact(totalTax,tax.amount());
+            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, null, "PURCHASE", input.jurisdictionCode(), input.taxCategory(), supplier.getContact());
+            long lineTotal = tax.grossAmount(); total=Math.addExact(total,lineTotal); totalTax=Math.addExact(totalTax,tax.taxAmount());
             PurchaseDetail detail = new PurchaseDetail(); detail.setPurchase(purchase); detail.setSupplier(supplier);
             detail.setProduct(product); detail.setQuantity(input.quantity()); detail.setPrice(input.unitPrice());
-            detail.setTaxRate(tax.rate()); detail.setTaxAmount(tax.amount()); detail.setLineTotal(lineTotal);
+            detail.setTaxRate(tax.rate()); detail.setTaxPolicy(tax.policy()); detail.setTaxAmount(tax.taxAmount()); detail.setLineTotal(lineTotal);
             purchase.getPurchaseDetails().add(detail);
         }
         purchase.setTotalAmount(total); purchase.setTaxAmount(totalTax); em.flush();
@@ -956,10 +961,16 @@ public class ErpWorkflowService {
         StockMovement m=new StockMovement(); m.setProduct(product); m.setStore(store); m.setQuantity(quantity); m.setMovementValidated(true);
         m.setMovementType(type); m.setReferenceType(refType); m.setReferenceId(refId); m.setIdempotencyKey(movementKey); m.setOccurredAt(Instant.now()); em.persist(m);
     }
-    private TaxCalculation calculateTax(long netAmount, Long taxRateId, Product product, Customer customer) {
-        com.erplancers.erp.tax.domain.TaxRate rate = null;
+    /**
+     * Explicit legacy tax-rate IDs remain supported for old integrations. New documents
+     * without a legacy ID must resolve a date-effective generic policy; no silent zero-tax
+     * fallback is allowed when a policy is missing.
+     */
+    private TaxCalculation calculateTax(long enteredAmount, Long taxRateId, Product product, Customer customer,
+                                        String transactionType, String jurisdictionCode, String requestedCategory,
+                                        Contact taxSubject) {
         if (taxRateId != null) {
-            rate = required(com.erplancers.erp.tax.domain.TaxRate.class, taxRateId);
+            TaxRate rate = required(TaxRate.class, taxRateId);
             Long selectedTaxRateId = rate.getId();
             if (product.getTaxClass() != null && (product.getTaxClass().getTaxRates() == null
                     || product.getTaxClass().getTaxRates().stream().noneMatch(candidate -> Objects.equals(candidate.getId(), selectedTaxRateId))))
@@ -969,32 +980,25 @@ public class ErpWorkflowService {
                     && (customerGroupId == null || rate.getCustomerGroups().stream()
                     .noneMatch(group -> Objects.equals(group.getId(), customerGroupId))))
                 throw new IllegalArgumentException("Selected tax rate does not apply to the customer's group");
-        } else if (product.getTaxClass() != null) {
-            Set<com.erplancers.erp.tax.domain.TaxRate> candidates = product.getTaxClass().getTaxRates();
-            if (candidates == null || candidates.isEmpty())
-                throw new IllegalStateException("Product tax class has no configured tax rates: " + product.getTaxClass().getId());
-            Long customerGroupId = customer == null || customer.getCustomerGroup() == null ? null : customer.getCustomerGroup().getId();
-            List<com.erplancers.erp.tax.domain.TaxRate> specific = candidates.stream()
-                    .filter(candidate -> candidate.getCustomerGroups() != null && customerGroupId != null
-                            && candidate.getCustomerGroups().stream().anyMatch(group -> Objects.equals(group.getId(), customerGroupId)))
-                    .toList();
-            List<com.erplancers.erp.tax.domain.TaxRate> defaults = candidates.stream()
-                    .filter(candidate -> candidate.getCustomerGroups() == null || candidate.getCustomerGroups().isEmpty())
-                    .toList();
-            List<com.erplancers.erp.tax.domain.TaxRate> selected = specific.isEmpty() ? defaults : specific;
-            if (selected.size() != 1)
-                throw new IllegalStateException("Tax class must resolve to exactly one applicable tax rate for product " + product.getId());
-            rate = selected.get(0);
+            float percentage = rate.getRate();
+            if (!Float.isFinite(percentage) || percentage < 0f || percentage > 100f)
+                throw new IllegalStateException("Tax rate must be between 0 and 100 percent");
+            long tax = BigDecimal.valueOf(enteredAmount).multiply(new BigDecimal(Float.toString(percentage)))
+                    .divide(BigDecimal.valueOf(100), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+            return new TaxCalculation(rate, null, enteredAmount, tax, Math.addExact(enteredAmount, tax));
         }
-        if (rate == null) return new TaxCalculation(null, 0L);
-        float percentage = rate.getRate();
-        if (!Float.isFinite(percentage) || percentage < 0f || percentage > 100f)
-            throw new IllegalStateException("Tax rate must be between 0 and 100 percent");
-        long tax = BigDecimal.valueOf(netAmount).multiply(new BigDecimal(Float.toString(percentage)))
-                .divide(BigDecimal.valueOf(100), 0, java.math.RoundingMode.HALF_UP).longValueExact();
-        return new TaxCalculation(rate, tax);
+
+        String category = requestedCategory;
+        if ((category == null || category.isBlank()) && product.getTaxClass() != null)
+            category = product.getTaxClass().getTitle();
+        TaxPolicyService.TaxCalculation result = taxPolicies.calculate(taxSubject, jurisdictionCode,
+                transactionType, category, LocalDate.now(), enteredAmount);
+        TaxPolicy policy = required(TaxPolicy.class, result.policyId());
+        return new TaxCalculation(null, policy, result.netAmount(), result.taxAmount(), result.grossAmount());
     }
-    private record TaxCalculation(com.erplancers.erp.tax.domain.TaxRate rate, long amount) {}
+
+    private record TaxCalculation(TaxRate rate, TaxPolicy policy, long netAmount,
+                                  long taxAmount, long grossAmount) {}
 
     private String hash(String value) {
         try {
