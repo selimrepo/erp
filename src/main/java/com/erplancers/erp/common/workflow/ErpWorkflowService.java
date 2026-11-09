@@ -73,7 +73,7 @@ public class ErpWorkflowService {
             long available = stock.getQuantity() == null ? 0 : stock.getQuantity();
             if (available < input.quantity()) throw new IllegalStateException("Insufficient stock for product " + product.getId() + ": available " + available);
             long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
-            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, customer, "SALE", input.jurisdictionCode(), input.taxCategory(), customer.getContact(), input.exemptionCode(), input.evidenceReference());
+            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, customer, "SALE", input.jurisdictionCode(), input.taxCategory(), customer.getContact(), input.exemptionCode(), input.evidenceType(), input.evidenceReference());
             long lineTotal = tax.grossAmount();
             total = Math.addExact(total, lineTotal);
             totalNet = Math.addExact(totalNet, tax.netAmount());
@@ -166,7 +166,7 @@ public class ErpWorkflowService {
         for (ErpWorkflowRequests.PurchaseLine input : request.lines()) {
             Product product = required(Product.class, input.productId());
             long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
-            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, null, "PURCHASE", input.jurisdictionCode(), input.taxCategory(), supplier.getContact(), input.exemptionCode(), input.evidenceReference());
+            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, null, "PURCHASE", input.jurisdictionCode(), input.taxCategory(), supplier.getContact(), input.exemptionCode(), input.evidenceType(), input.evidenceReference());
             long lineTotal = tax.grossAmount(); total=Math.addExact(total,lineTotal); totalTax=Math.addExact(totalTax,tax.taxAmount());
             PurchaseDetail detail = new PurchaseDetail(); detail.setPurchase(purchase); detail.setSupplier(supplier);
             detail.setProduct(product); detail.setQuantity(input.quantity()); detail.setPrice(input.unitPrice());
@@ -675,7 +675,8 @@ public class ErpWorkflowService {
                 ? CreditNoteReasonCode.OTHER : CreditNoteReasonCode.valueOf(request.reasonCode().trim().toUpperCase(Locale.ROOT)); }
         catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("Unsupported credit-note reason code", invalid); }
         if (reasonCode == CreditNoteReasonCode.TAX_CORRECTION
-                && (request.evidenceReference() == null || request.evidenceReference().isBlank()))
+                && (request.evidenceType() == null || request.evidenceType().isBlank()
+                || request.evidenceReference() == null || request.evidenceReference().isBlank()))
             throw new IllegalArgumentException("Tax correction credit notes require a supporting evidence reference");
 
         List<Invoice> prior = em.createQuery("select i from Invoice i where i.workflowKey=:key", Invoice.class)
@@ -685,6 +686,7 @@ public class ErpWorkflowService {
             if (note.getOriginalInvoice()==null || !Objects.equals(note.getOriginalInvoice().getId(), invoiceId)
                     || !Objects.equals(note.getAmount(), request.amount()) || !Objects.equals(note.getCreditNoteReason(), request.reason())
                     || note.getCreditNoteReasonCode() != reasonCode
+                    || !Objects.equals(note.getTaxEvidenceType(), request.evidenceType())
                     || !Objects.equals(note.getTaxEvidenceReference(), request.evidenceReference()))
                 throw new IllegalArgumentException("Credit note idempotency key was reused with a different payload");
             return result("creditNote", note.getId(), "originalInvoice", invoiceId, "idempotentReplay", true);
@@ -752,7 +754,7 @@ public class ErpWorkflowService {
         note.setCurrency(original.getCurrency()); note.setInvoiceType(InvoiceType.CREDIT_NOTE);
         note.setInvoiceStatus(InvoiceStatus.CONFIRMED); note.setOriginalInvoice(original);
         note.setCreditNoteReason(request.reason()); note.setCreditNoteReasonCode(reasonCode);
-        note.setTaxEvidenceReference(request.evidenceReference());
+        note.setTaxEvidenceType(request.evidenceType()); note.setTaxEvidenceReference(request.evidenceReference());
         note.setWorkflowKey("credit-note:" + request.idempotencyKey());
         note.setCreationValidated(true);
         note.setBillingContacts(original.getBillingContacts()); note.setShippingContacts(original.getShippingContacts());
@@ -1126,14 +1128,14 @@ public class ErpWorkflowService {
      */
     private TaxCalculation calculateTax(long enteredAmount, Long legacyTaxRateId, Product product, Customer customer,
                                         String transactionType, String jurisdictionCode, String requestedCategory,
-                                        Contact taxSubject, String exemptionCode, String evidenceReference) {
+                                        Contact taxSubject, String exemptionCode, String evidenceType, String evidenceReference) {
         String category = requestedCategory;
         if ((category == null || category.isBlank()) && product.getTaxClass() != null)
             category = product.getTaxClass().getTitle();
         try {
             TaxPolicyService.DetailedTaxCalculation result = taxPolicies.calculateDetailed(taxSubject,
                     jurisdictionCode, transactionType, category, LocalDate.now(), enteredAmount,
-                    exemptionCode, evidenceReference);
+                    exemptionCode, evidenceType, evidenceReference);
             TaxPolicy policy = required(TaxPolicy.class, result.policyId());
             List<TaxComponentSnapshot> components = result.components().stream()
                     .map(c -> new TaxComponentSnapshot(c.name(), c.componentType(), c.rate(), c.amount(),
