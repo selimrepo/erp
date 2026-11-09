@@ -154,6 +154,17 @@ public class TaxPolicyService {
     }
 
     @Transactional(readOnly = true)
+    public DetailedTaxCalculation calculateDetailedForCompanyId(Long companyId, String jurisdictionCode,
+            String transactionType, String taxCategory, LocalDate date, long enteredAmount,
+            String exemptionCode, String evidenceType, String evidenceReference) {
+        Contact company = companyId == null ? null : entityManager.find(Contact.class, companyId);
+        if (companyId != null && company == null)
+            throw new IllegalArgumentException("Tax policy company contact not found: " + companyId);
+        return calculateDetailed(company, jurisdictionCode, transactionType, taxCategory, date, enteredAmount,
+                exemptionCode, evidenceType, evidenceReference);
+    }
+
+    @Transactional(readOnly = true)
     public DetailedTaxCalculation calculateDetailed(Contact company, String jurisdictionCode, String transactionType,
             String taxCategory, LocalDate date, long enteredAmount, String exemptionCode, String evidenceType, String evidenceReference) {
         if (date == null) throw new IllegalArgumentException("Tax calculation date is required");
