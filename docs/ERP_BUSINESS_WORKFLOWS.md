@@ -72,3 +72,14 @@ At the persistence boundary, a journal can transition from DRAFT to POSTED only 
 - total debit equals total credit and is greater than zero.
 
 Posted journal headers and lines remain immutable; corrections require reversal entries. Workflow services must still enforce authorization, idempotency, source-document linkage and transaction boundaries around posting.
+
+
+## Document workflow tax-policy integration
+
+Sales-order and purchase-order lines now resolve the generic, date-effective tax policy using the transaction type (`SALE` or `PURCHASE`), company/contact scope, jurisdiction and tax category. The request may provide `jurisdictionCode` and `taxCategory`; when category is omitted, the product tax-class title is used. The selected policy is persisted on each document line, alongside the calculated tax amount and gross line total. The generic policy engine takes precedence. An explicitly supplied legacy `taxRateId` is retained only as a compatibility fallback when no generic policy matches.
+
+Sales order creation calculates net/tax/gross from the selected policy before reserving stock and creating the invoice. Full purchase receipt creates the supplier invoice from the already-taxed purchase lines. These operations remain inside the existing workflow transaction, so a tax-resolution, stock, invoice or ledger-posting failure rolls the complete command back.
+
+For workflows that must also post the invoice immediately, sales-order requests may include `accountingPosting` together with `createInvoice=true`; full purchase-receipt requests may include the same `accountingPosting` object. Journal creation is then invoked inside the same transaction as the stock and invoice changes. The API checks journal/account authorization before accepting that option. The posting object supplies fiscal year, period, entry date, company and debit/credit/tax accounts. Existing separate invoice-posting endpoints remain available.
+
+Credit notes already preserve the original invoice relationship and proportionally reverse the original net/tax split. This is not a substitute for a jurisdiction-complete tax treatment model: exemption reason/certificate validation, withholding accounts and settlement, reverse-charge input/output tax entries, multi-component compound tax, statutory return forms and jurisdiction-specific rounding/reporting rules still require explicit policy fields and accounting mappings. A zero-rate policy can represent a zero-tax calculation, but does not by itself establish legal exemption eligibility.
