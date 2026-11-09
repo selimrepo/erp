@@ -330,8 +330,6 @@ public class ErpWorkflowService {
         }
         if (quantities.isEmpty()) throw new IllegalStateException("There are no outstanding quantities to receive");
 
-        if (!fullyReceived && accountingPosting != null)
-            throw new IllegalStateException("Invoice ledger posting is only available when the purchase is fully received");
         PurchaseReceipt receipt = new PurchaseReceipt();
         receipt.setPurchase(purchase); receipt.setIdempotencyKey(idempotencyKey); receipt.setPayloadHash(receiptHash); receipt.setReceivedAt(LocalDateTime.now());
         receipt.setReceiptValidated(true);
@@ -363,6 +361,8 @@ public class ErpWorkflowService {
         }
         boolean fullyReceived = purchase.getPurchaseDetails().stream().allMatch(d ->
                 (d.getReceivedQuantity() == null ? 0L : d.getReceivedQuantity()) >= d.getQuantity());
+        if (!fullyReceived && accountingPosting != null)
+            throw new IllegalStateException("Invoice ledger posting is only available when the purchase is fully received");
         purchase.setReceiptValidated(true);
         purchase.setStatus(fullyReceived ? "RECEIVED" : "PARTIALLY_RECEIVED");
         purchase.setReceiptIdempotencyKey(idempotencyKey);
