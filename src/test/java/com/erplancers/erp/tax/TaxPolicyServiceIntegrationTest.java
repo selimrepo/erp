@@ -41,6 +41,24 @@ class TaxPolicyServiceIntegrationTest {
     }
 
     @Test
+    void resolvesSalesAndPurchasePoliciesIndependentlyForDocumentWorkflows() {
+        TaxPolicy sales = policy("Sales VAT", "TR", "SALE", "STANDARD", "20", 1, false);
+        TaxPolicy purchase = policy("Purchase VAT", "TR", "PURCHASE", "STANDARD", "10", 1, false);
+        policies.save(sales);
+        policies.saveAndFlush(purchase);
+
+        var salesResult = service.calculate(null, "TR", "SALE", "STANDARD",
+                LocalDate.of(2026, 11, 9), 5_000L);
+        var purchaseResult = service.calculate(null, "TR", "PURCHASE", "STANDARD",
+                LocalDate.of(2026, 11, 9), 5_000L);
+
+        assertThat(salesResult.policyId()).isEqualTo(sales.getId());
+        assertThat(salesResult.taxAmount()).isEqualTo(1_000L);
+        assertThat(purchaseResult.policyId()).isEqualTo(purchase.getId());
+        assertThat(purchaseResult.taxAmount()).isEqualTo(500L);
+    }
+
+    @Test
     void calculatesTaxInclusiveAmountsAndHonorsValidityDates() {
         policies.saveAndFlush(policy("Inclusive rate", "DE", "SALE", "REDUCED", "19",
                 1, true));
