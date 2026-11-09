@@ -8,11 +8,11 @@ import java.util.List;
 
 public final class ErpWorkflowRequests {
     private ErpWorkflowRequests() {}
-    public record SalesLine(@NotNull Long productId, @NotNull @Positive Long quantity, @NotNull @PositiveOrZero Long unitPrice, Long taxRateId) { public SalesLine(Long productId, Long quantity, Long unitPrice) { this(productId, quantity, unitPrice, null); } }
+    public record SalesLine(@NotNull Long productId, @NotNull @Positive Long quantity, @NotNull @PositiveOrZero Long unitPrice, Long taxRateId, @Size(max = 32) String jurisdictionCode, @Size(max = 60) String taxCategory) { public SalesLine(Long productId, Long quantity, Long unitPrice, Long taxRateId) { this(productId, quantity, unitPrice, taxRateId, null, null); } public SalesLine(Long productId, Long quantity, Long unitPrice) { this(productId, quantity, unitPrice, null, null, null); } }
     public record SalesOrder(@NotBlank @Size(max = 160) String idempotencyKey, @NotNull Long customerId, @NotNull Long shippingContactId,
                              @NotNull Long currencyId, @NotNull Long storeId, @NotEmpty List<@Valid SalesLine> lines,
                              String comment, boolean createInvoice) {}
-    public record PurchaseLine(@NotNull Long productId, @NotNull @Positive Long quantity, @NotNull @PositiveOrZero Long unitPrice, Long taxRateId) { public PurchaseLine(Long productId, Long quantity, Long unitPrice) { this(productId, quantity, unitPrice, null); } }
+    public record PurchaseLine(@NotNull Long productId, @NotNull @Positive Long quantity, @NotNull @PositiveOrZero Long unitPrice, Long taxRateId, @Size(max = 32) String jurisdictionCode, @Size(max = 60) String taxCategory) { public PurchaseLine(Long productId, Long quantity, Long unitPrice, Long taxRateId) { this(productId, quantity, unitPrice, taxRateId, null, null); } public PurchaseLine(Long productId, Long quantity, Long unitPrice) { this(productId, quantity, unitPrice, null, null, null); } }
     public record PurchaseOrder(@NotBlank @Size(max = 160) String idempotencyKey, @NotNull Long supplierId, @NotNull Long storeId, @NotNull Long currencyId,
                                 @NotEmpty List<@Valid PurchaseLine> lines, String notes) {}
     public record StockAdjustmentRequest(@NotBlank @Size(max = 160) String idempotencyKey, @NotNull Long productId,
