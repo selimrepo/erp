@@ -58,6 +58,9 @@ public class JournalEntryLifecycleListener {
             throw new IllegalStateException("A journal cannot be posted into a closed fiscal year or period");
         if (period.getFiscalYear() == null || !Objects.equals(period.getFiscalYear().getId(), year.getId()))
             throw new IllegalStateException("Journal fiscal period does not belong to its fiscal year");
+        if (year.getCompany() != null && entry.getCompany() != null
+                && !Objects.equals(year.getCompany().getId(), entry.getCompany().getId()))
+            throw new IllegalStateException("Journal company does not match its fiscal year");
         if (year.getStartDate() == null || year.getEndDate() == null
                 || entry.getEntryDate().isBefore(year.getStartDate()) || entry.getEntryDate().isAfter(year.getEndDate())
                 || period.getStartDate() == null || period.getEndDate() == null
