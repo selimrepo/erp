@@ -28,8 +28,8 @@ class JournalPostingIntegrationTest {
         journal.setStatus(JournalEntryStatus.POSTED);
 
         assertThatThrownBy(() -> entityManager.flush())
-                .hasRootCauseInstanceOf(IllegalStateException.class)
-                .hasRootCauseMessage("Journal debits and credits must be equal and greater than zero");
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Journal debits and credits must be equal and greater than zero");
     }
 
     @Test
