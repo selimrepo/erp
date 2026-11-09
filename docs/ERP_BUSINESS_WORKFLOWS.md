@@ -54,7 +54,7 @@ The workflow API provides transactional primitives, but production readiness sti
 
 ## Generic tax policies
 
-The tax module provides reusable, date-effective `TaxPolicy` records. A policy can be global or company-scoped and can optionally constrain jurisdiction, transaction type and tax category. Null scope values act as wildcards. Resolution chooses the most specific matching policy, then the lowest numeric priority, then the most recent effective date. Policies support tax-inclusive and tax-exclusive prices; the calculation API accepts and returns integer minor-unit amounts to match the current invoice amount convention.
+The tax module provides reusable, date-effective `TaxPolicy` records. A policy can be global or company-scoped and can optionally constrain jurisdiction (country or sub-national code), transaction type and tax category. Null scope values act as wildcards. Resolution chooses the most specific matching policy, then the lowest numeric priority, then the most recent effective date. Policies support tax-inclusive and tax-exclusive prices; the calculation API accepts and returns integer minor-unit amounts to match the current invoice amount convention.
 
 A policy must have a non-negative rate no greater than 100%, a valid date interval and a non-negative priority. The service fails closed when no active policy matches. The Flyway migration creates the policy table and lookup indexes.
 
