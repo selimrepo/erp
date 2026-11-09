@@ -170,6 +170,22 @@ class SalesTaxDocumentWorkflowIntegrationTest {
             assertThat(entityManager.createQuery(
                     "select count(l) from JournalEntryLine l where l.journalEntry.id=:id", Long.class)
                     .setParameter("id", note.getLedgerJournalEntry().getId()).getSingleResult()).isEqualTo(7L);
+            assertThat(entityManager.createQuery(
+                    "select coalesce(sum(l.debit),0) from JournalEntryLine l where l.journalEntry.id=:id and l.account.id=:accountId", java.math.BigDecimal.class)
+                    .setParameter("id", originalJournalId).setParameter("accountId", ledger.inputTaxAccountId()).getSingleResult())
+                    .isEqualByComparingTo("2550");
+            assertThat(entityManager.createQuery(
+                    "select coalesce(sum(l.credit),0) from JournalEntryLine l where l.journalEntry.id=:id and l.account.id=:accountId", java.math.BigDecimal.class)
+                    .setParameter("id", note.getLedgerJournalEntry().getId()).setParameter("accountId", ledger.inputTaxAccountId()).getSingleResult())
+                    .isEqualByComparingTo("1275");
+            assertThat(entityManager.createQuery(
+                    "select coalesce(sum(l.debit),0) from JournalEntryLine l where l.journalEntry.id=:id and l.account.id=:accountId", java.math.BigDecimal.class)
+                    .setParameter("id", note.getLedgerJournalEntry().getId()).setParameter("accountId", ledger.outputTaxAccountId()).getSingleResult())
+                    .isEqualByComparingTo("500");
+            assertThat(entityManager.createQuery(
+                    "select coalesce(sum(l.debit),0) from JournalEntryLine l where l.journalEntry.id=:id and l.account.id=:accountId", java.math.BigDecimal.class)
+                    .setParameter("id", note.getLedgerJournalEntry().getId()).setParameter("accountId", ledger.withholdingAccountId()).getSingleResult())
+                    .isEqualByComparingTo("100");
             return null;
         });
     }
