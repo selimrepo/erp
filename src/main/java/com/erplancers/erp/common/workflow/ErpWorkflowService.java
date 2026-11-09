@@ -296,7 +296,7 @@ public class ErpWorkflowService {
     private Map<String,Object> receivePurchaseLines(Long purchaseId, String idempotencyKey,
             List<ErpWorkflowRequests.PurchaseReceiptLineInput> requestedLines, Long storeId,
             ErpWorkflowRequests.DocumentPosting accountingPosting) {
-        String receiptPayload = purchaseId + "|" + (requestedLines == null ? "ALL_OUTSTANDING" : requestedLines.toString()) + "|" + storeId;
+        String receiptPayload = purchaseId + "|" + (requestedLines == null ? "ALL_OUTSTANDING" : requestedLines.toString()) + "|" + storeId + "|" + accountingPosting;
         String receiptHash = hash(receiptPayload);
         Purchase purchase = em.find(Purchase.class, purchaseId, LockModeType.PESSIMISTIC_WRITE);
         if (purchase == null) throw new IllegalArgumentException("Purchase not found: " + purchaseId);
@@ -306,6 +306,11 @@ public class ErpWorkflowService {
             PurchaseReceipt prior = previous.get(0);
             if (!Objects.equals(prior.getPurchase().getId(), purchaseId) || !Objects.equals(prior.getPayloadHash(), receiptHash))
                 throw new IllegalArgumentException("Receipt idempotency key was reused for a different receipt payload");
+            if (accountingPosting != null && prior.getPurchase().getInvoice() != null
+                    && prior.getPurchase().getInvoice().getLedgerJournalEntry() == null) {
+                em.flush();
+                postInvoiceToLedger(prior.getPurchase().getInvoice().getId(), accountingPosting);
+            }
             return result("purchase", purchaseId, "receipt", prior.getId(), "status", prior.getPurchase().getStatus(), "idempotentReplay", true);
         }
         if (!Set.of("ORDERED", "PARTIALLY_RECEIVED").contains(purchase.getStatus()))
@@ -377,7 +382,11 @@ public class ErpWorkflowService {
             invoice.setCreationValidated(true);
             em.persist(invoice); purchase.setInvoice(invoice);
             purchase.setApprovedDate(LocalDateTime.now());
-            if (accountingPosting != null) { em.flush(); postInvoiceToLedger(invoice.getId(), accountingPosting); }
+        }
+        if (accountingPosting != null && purchase.getInvoice() != null
+                && purchase.getInvoice().getLedgerJournalEntry() == null) {
+            em.flush();
+            postInvoiceToLedger(purchase.getInvoice().getId(), accountingPosting);
         }
         em.flush();
         return result("purchase", purchaseId, "receipt", receipt.getId(), "receivedQuantity", receivedTotal,
