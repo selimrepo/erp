@@ -24,11 +24,9 @@ public class TaxPolicyService {
 
     @Transactional(readOnly = true)
     public TaxCalculation calculate(Contact company, String jurisdictionCode, String transactionType,
-                                    String taxCategory, LocalDate date, long enteredAmount,
-                                    int currencyScale) {
+                                    String taxCategory, LocalDate date, long enteredAmount) {
         if (date == null) throw new IllegalArgumentException("Tax calculation date is required");
         if (enteredAmount < 0) throw new IllegalArgumentException("Taxable amount cannot be negative");
-        if (currencyScale < 0 || currencyScale > 4) throw new IllegalArgumentException("Unsupported currency scale");
 
         String jurisdiction = normalize(jurisdictionCode);
         String transaction = normalize(transactionType);
