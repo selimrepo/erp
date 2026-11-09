@@ -788,7 +788,7 @@ public class ErpWorkflowService {
                 if (amount > 0 && taxAccount == null)
                     throw new IllegalArgumentException("Output/input tax account is required for tax component " + component.getName());
                 if (amount > 0) {
-                    if (sale == creditNote)
+                    if (sale ? creditNote : !creditNote)
                         lines.add(new ErpWorkflowRequests.JournalLine(taxAccount.getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, component.getName() + " tax reversal"));
                     else
                         lines.add(new ErpWorkflowRequests.JournalLine(taxAccount.getId(), sale ? BigDecimal.ZERO : BigDecimal.valueOf(amount),
@@ -800,7 +800,7 @@ public class ErpWorkflowService {
                 if (amount > 0 && withholdingAccount == null)
                     throw new IllegalArgumentException("Withholding account is required for component " + component.getName());
                 if (amount > 0) {
-                    boolean debit = sale == creditNote;
+                    boolean debit = sale != creditNote;
                     lines.add(new ErpWorkflowRequests.JournalLine(withholdingAccount.getId(),
                             debit ? BigDecimal.valueOf(amount) : BigDecimal.ZERO,
                             debit ? BigDecimal.ZERO : BigDecimal.valueOf(amount), component.getName() + " withholding"));
