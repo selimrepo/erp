@@ -238,6 +238,24 @@ public class TaxPolicyService {
                     component.getOutputTaxAccount() == null ? null : component.getOutputTaxAccount().getId(),
                     component.getInputTaxAccount() == null ? null : component.getInputTaxAccount().getId()));
         }
+        if (selected.isTaxInclusive() && selected.getTreatment() != TaxTreatment.EXEMPT) {
+            long targetTax = Math.subtractExact(enteredAmount, net);
+            long roundingDelta = Math.subtractExact(targetTax, outputTax);
+            if (roundingDelta != 0) {
+                for (int i = amounts.size() - 1; i >= 0; i--) {
+                    ComponentAmount component = amounts.get(i);
+                    if (component.componentType() == TaxComponentType.STANDARD
+                            || component.componentType() == TaxComponentType.COMPOUND) {
+                        long adjusted = Math.addExact(component.amount(), roundingDelta);
+                        if (adjusted < 0) throw new IllegalStateException("Tax component rounding adjustment became negative");
+                        amounts.set(i, new ComponentAmount(component.name(), component.componentType(),
+                                component.rate(), adjusted, component.outputTaxAccountId(), component.inputTaxAccountId()));
+                        outputTax = targetTax;
+                        break;
+                    }
+                }
+            }
+        }
         long gross = Math.subtractExact(Math.addExact(net, outputTax), withholding);
         if (gross < 0) throw new IllegalArgumentException("Tax withholding cannot exceed the document gross amount");
         return new DetailedTaxCalculation(selected.getId(), net, outputTax, withholding, reverseCharge, gross,
