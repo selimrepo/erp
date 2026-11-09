@@ -90,7 +90,7 @@ public class TaxPolicyService {
                              boolean taxInclusive, boolean active) {}
 
     @Transactional(readOnly = true)
-    public TaxCalculation calculate(Long companyId, String jurisdictionCode, String transactionType,
+    public TaxCalculation calculateForCompanyId(Long companyId, String jurisdictionCode, String transactionType,
                                     String taxCategory, LocalDate date, long enteredAmount) {
         Contact company = companyId == null ? null : entityManager.find(Contact.class, companyId);
         if (companyId != null && company == null)
