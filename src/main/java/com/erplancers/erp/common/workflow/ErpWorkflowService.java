@@ -898,7 +898,7 @@ public class ErpWorkflowService {
             if (taxAmount > 0 && fallbackTax == null)
                 throw new IllegalArgumentException("Tax account is required for taxable invoice posting");
             if (taxAmount > 0) {
-                if (sale == creditNote)
+                if (sale ? creditNote : !creditNote)
                     lines.add(new ErpWorkflowRequests.JournalLine(fallbackTax.getId(), BigDecimal.valueOf(taxAmount), BigDecimal.ZERO, "Output tax reversal"));
                 else
                     lines.add(new ErpWorkflowRequests.JournalLine(fallbackTax.getId(), sale ? BigDecimal.ZERO : BigDecimal.valueOf(taxAmount),
@@ -906,7 +906,7 @@ public class ErpWorkflowService {
             }
             if (withholdingAmount > 0) {
                 if (fallbackWithholding == null) throw new IllegalArgumentException("Withholding account is required");
-                boolean debit = sale == creditNote;
+                boolean debit = sale != creditNote;
                 lines.add(new ErpWorkflowRequests.JournalLine(fallbackWithholding.getId(),
                         debit ? BigDecimal.valueOf(withholdingAmount) : BigDecimal.ZERO,
                         debit ? BigDecimal.ZERO : BigDecimal.valueOf(withholdingAmount), "Withholding"));
@@ -914,8 +914,13 @@ public class ErpWorkflowService {
             if (reverseChargeAmount > 0) {
                 if (fallbackReverseInput == null || fallbackReverseOutput == null)
                     throw new IllegalArgumentException("Reverse-charge input and output tax accounts are required");
-                lines.add(new ErpWorkflowRequests.JournalLine(fallbackReverseInput.getId(), BigDecimal.valueOf(reverseChargeAmount), BigDecimal.ZERO, "Reverse-charge input tax"));
-                lines.add(new ErpWorkflowRequests.JournalLine(fallbackReverseOutput.getId(), BigDecimal.ZERO, BigDecimal.valueOf(reverseChargeAmount), "Reverse-charge output tax"));
+                if (!creditNote) {
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackReverseInput.getId(), BigDecimal.valueOf(reverseChargeAmount), BigDecimal.ZERO, "Reverse-charge input tax"));
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackReverseOutput.getId(), BigDecimal.ZERO, BigDecimal.valueOf(reverseChargeAmount), "Reverse-charge output tax"));
+                } else {
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackReverseOutput.getId(), BigDecimal.valueOf(reverseChargeAmount), BigDecimal.ZERO, "Reverse-charge output tax reversal"));
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackReverseInput.getId(), BigDecimal.ZERO, BigDecimal.valueOf(reverseChargeAmount), "Reverse-charge input tax reversal"));
+                }
             }
         } else if (componentOutputTax != taxAmount || componentWithholding != withholdingAmount
                 || componentReverse != reverseChargeAmount) {
