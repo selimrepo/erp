@@ -1,0 +1,75 @@
+package com.erplancers.erp.tax;
+
+import com.erplancers.erp.tax.domain.TaxPolicy;
+import com.erplancers.erp.tax.repository.TaxPolicyRepository;
+import com.erplancers.erp.tax.service.TaxPolicyService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.context.annotation.Import;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+@DataJpaTest
+@Import(TaxPolicyService.class)
+class TaxPolicyServiceIntegrationTest {
+    @Autowired TaxPolicyRepository policies;
+    @Autowired TaxPolicyService service;
+
+    @Test
+    void resolvesSpecificPolicyAndCalculatesExclusiveTaxInMinorUnits() {
+        TaxPolicy global = policy("Global default", "TR", null, null, "18", 100, false);
+        TaxPolicy specific = policy("Domestic sales VAT", "TR", "SALE", "STANDARD", "20", 10, false);
+        policies.save(global);
+        policies.saveAndFlush(specific);
+
+        var result = service.calculate(null, "tr", "sale", "standard",
+                LocalDate.of(2026, 11, 9), 10_000L, 2);
+
+        assertThat(result.policyId()).isEqualTo(specific.getId());
+        assertThat(result.netAmount()).isEqualTo(10_000L);
+        assertThat(result.taxAmount()).isEqualTo(2_000L);
+        assertThat(result.grossAmount()).isEqualTo(12_000L);
+    }
+
+    @Test
+    void calculatesTaxInclusiveAmountsAndHonorsValidityDates() {
+        policies.saveAndFlush(policy("Inclusive rate", "DE", "SALE", "REDUCED", "19",
+                1, true));
+
+        var result = service.calculate(null, "DE", "SALE", "REDUCED",
+                LocalDate.of(2026, 11, 9), 11_900L, 2);
+
+        assertThat(result.netAmount()).isEqualTo(10_000L);
+        assertThat(result.taxAmount()).isEqualTo(1_900L);
+        assertThat(result.grossAmount()).isEqualTo(11_900L);
+    }
+
+    @Test
+    void failsClosedWhenNoPolicyMatches() {
+        assertThatThrownBy(() -> service.calculate(null, "US", "SALE", "STANDARD",
+                LocalDate.of(2026, 11, 9), 1_000L, 2))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("No active tax policy");
+    }
+
+    private TaxPolicy policy(String name, String jurisdiction, String transaction,
+                             String category, String rate, int priority, boolean inclusive) {
+        TaxPolicy policy = new TaxPolicy();
+        policy.setName(name);
+        policy.setJurisdictionCode(jurisdiction);
+        policy.setTransactionType(transaction);
+        policy.setTaxCategory(category);
+        policy.setRate(new BigDecimal(rate));
+        policy.setValidFrom(LocalDate.of(2026, 1, 1));
+        policy.setValidUntil(LocalDate.of(2026, 12, 31));
+        policy.setPriority(priority);
+        policy.setTaxInclusive(inclusive);
+        policy.setActive(true);
+        return policy;
+    }
+}
