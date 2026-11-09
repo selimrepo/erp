@@ -8,6 +8,11 @@ import com.erplancers.erp.finance.domain.InvoiceTaxComponent;
 import com.erplancers.erp.finance.domain.InvoiceType;
 import com.erplancers.erp.finance.domain.InvoiceStatus;
 import com.erplancers.erp.finance.domain.CreditNoteReasonCode;
+import com.erplancers.erp.accounting.domain.Account;
+import com.erplancers.erp.accounting.domain.FiscalYear;
+import com.erplancers.erp.accounting.domain.FiscalPeriod;
+import com.erplancers.erp.accounting.domain.JournalEntry;
+import com.erplancers.erp.accounting.domain.JournalEntryLine;
 import com.erplancers.erp.tax.domain.TaxComponentType;
 import com.erplancers.erp.procurement.domain.Supplier;
 import com.erplancers.erp.procurement.domain.Purchase;
@@ -104,6 +109,85 @@ class SalesTaxDocumentWorkflowIntegrationTest {
     }
 
     @Test
+    void postsWithholdingAndReverseChargeAccountsAndReversesThemOnCreditNote() {
+        LedgerFixture ledger = inNewTransaction(() -> {
+            Account expense = account("5000", "Purchase expense");
+            Account payable = account("3200", "Accounts payable");
+            Account inputTax = account("1910", "Input tax");
+            Account outputTax = account("3910", "Output tax");
+            Account withholding = account("3600", "Withholding payable");
+            FiscalYear year = new FiscalYear(); year.setFiscalYear(2026);
+            year.setStartDate(LocalDate.of(2026, 1, 1)); year.setEndDate(LocalDate.of(2026, 12, 31));
+            entityManager.persist(year);
+            FiscalPeriod period = new FiscalPeriod(); period.setFiscalYear(year); period.setPeriodNumber(11);
+            period.setName("November 2026"); period.setStartDate(LocalDate.of(2026, 11, 1));
+            period.setEndDate(LocalDate.of(2026, 11, 30)); entityManager.persist(period);
+
+            Invoice invoice = new Invoice();
+            invoice.setInvoiceName("INV-TAX-COMPONENT-POST");
+            invoice.setInvoiceDescription("Multi component purchase invoice");
+            invoice.setAmount(11_350L); invoice.setNetAmount(10_000L); invoice.setTaxAmount(1_550L);
+            invoice.setWithholdingAmount(200L); invoice.setReverseChargeTaxAmount(1_000L);
+            invoice.setPaidAmount(0L); invoice.setCreditedAmount(0L);
+            invoice.setInvoiceType(InvoiceType.PURCHASE); invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED);
+            invoice.setWorkflowKey("purchase:multi-component-post"); invoice.setCreationValidated(true);
+            invoice.getTaxComponents().add(invoiceComponent(invoice, "VAT", TaxComponentType.STANDARD, "10", 1_000L, null, inputTax));
+            invoice.getTaxComponents().add(invoiceComponent(invoice, "Compound levy", TaxComponentType.COMPOUND, "5", 550L, null, inputTax));
+            invoice.getTaxComponents().add(invoiceComponent(invoice, "Withholding", TaxComponentType.WITHHOLDING, "2", 200L, withholding, null));
+            invoice.getTaxComponents().add(invoiceComponent(invoice, "Reverse charge", TaxComponentType.REVERSE_CHARGE, "10", 1_000L, outputTax, inputTax));
+            entityManager.persist(invoice); entityManager.flush();
+            return new LedgerFixture(invoice.getId(), year.getId(), period.getId(),
+                    expense.getId(), payable.getId(), inputTax.getId(), outputTax.getId(), withholding.getId());
+        });
+
+        ErpWorkflowRequests.DocumentPosting originalPosting = new ErpWorkflowRequests.DocumentPosting(
+                "multi-component-invoice-post", ledger.fiscalYearId(), ledger.fiscalPeriodId(), null,
+                LocalDate.of(2026, 11, 9), "Post purchase tax components",
+                ledger.expenseAccountId(), ledger.payableAccountId(), null);
+        Map<String,Object> posted = workflows.postInvoiceToLedger(ledger.invoiceId(), originalPosting);
+        Long originalJournalId = ((Number) posted.get("journalEntry")).longValue();
+
+        ErpWorkflowRequests.DocumentPosting creditPosting = new ErpWorkflowRequests.DocumentPosting(
+                "multi-component-credit-post", ledger.fiscalYearId(), ledger.fiscalPeriodId(), null,
+                LocalDate.of(2026, 11, 9), "Reverse purchase tax components",
+                ledger.expenseAccountId(), ledger.payableAccountId(), null);
+        Map<String,Object> credit = workflows.createCreditNote(ledger.invoiceId(),
+                new ErpWorkflowRequests.CreditNote("multi-component-credit", 5_675L, "Tax correction",
+                        "TAX_CORRECTION", "TAX_CORRECTION_MEMO", "DOC-TAX-2026", creditPosting));
+        Long creditId = ((Number) credit.get("creditNote")).longValue();
+
+        inNewTransaction(() -> {
+            entityManager.clear();
+            Invoice note = entityManager.find(Invoice.class, creditId);
+            assertThat(note.getAmount()).isEqualTo(5_675L);
+            assertThat(note.getTaxAmount()).isEqualTo(775L);
+            assertThat(note.getWithholdingAmount()).isEqualTo(100L);
+            assertThat(note.getReverseChargeTaxAmount()).isEqualTo(500L);
+            assertThat(note.getLedgerJournalEntry()).isNotNull();
+            assertThat(entityManager.createQuery(
+                    "select count(l) from JournalEntryLine l where l.journalEntry.id=:id", Long.class)
+                    .setParameter("id", originalJournalId).getSingleResult()).isEqualTo(7L);
+            assertThat(entityManager.createQuery(
+                    "select count(l) from JournalEntryLine l where l.journalEntry.id=:id", Long.class)
+                    .setParameter("id", note.getLedgerJournalEntry().getId()).getSingleResult()).isEqualTo(7L);
+            return null;
+        });
+    }
+
+    private Account account(String code, String name) {
+        Account account = new Account(); account.setCode(code); account.setName(name);
+        account.setPostingAllowed(true); account.setBlocked(false); entityManager.persist(account);
+        return account;
+    }
+
+    private InvoiceTaxComponent invoiceComponent(Invoice invoice, String name, TaxComponentType type,
+                                                  String rate, long amount, Account output, Account input) {
+        InvoiceTaxComponent component = invoiceComponent(invoice, name, type, rate, amount);
+        component.setOutputTaxAccount(output); component.setInputTaxAccount(input);
+        return component;
+    }
+
+    @Test
     void creditNoteReversesEachTaxComponentProportionallyAndRequiresTaxCorrectionEvidence() {
         Long originalId = inNewTransaction(() -> {
             Invoice original = new Invoice();
@@ -152,6 +236,10 @@ class SalesTaxDocumentWorkflowIntegrationTest {
         component.setRate(new java.math.BigDecimal(rate)); component.setAmount(amount);
         return component;
     }
+
+    private record LedgerFixture(Long invoiceId, Long fiscalYearId, Long fiscalPeriodId,
+                                  Long expenseAccountId, Long payableAccountId, Long inputTaxAccountId,
+                                  Long outputTaxAccountId, Long withholdingAccountId) {}
 
     @Test
     void rollsBackPurchaseReceiptStockInvoiceAndLedgerWhenPostingFails() {
