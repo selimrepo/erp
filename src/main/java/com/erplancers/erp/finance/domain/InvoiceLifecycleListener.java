@@ -71,20 +71,26 @@ public class InvoiceLifecycleListener {
 
     private void validate(Invoice invoice) {
         long amount = value(invoice.getAmount()), net = value(invoice.getNetAmount()), tax = value(invoice.getTaxAmount());
+        long withholding = value(invoice.getWithholdingAmount()), reverseCharge = value(invoice.getReverseChargeTaxAmount());
         long paid = value(invoice.getPaidAmount()), credited = value(invoice.getCreditedAmount());
-        if (amount < 0 || net < 0 || tax < 0 || paid < 0 || credited < 0)
+        if (amount < 0 || net < 0 || tax < 0 || withholding < 0 || reverseCharge < 0 || paid < 0 || credited < 0)
             throw new IllegalStateException("Invoice monetary values cannot be negative");
         if (amount > 0 && net == 0 && tax == 0) {
             invoice.setNetAmount(amount);
             net = amount;
         }
-        if (Math.addExact(net, tax) != amount)
-            throw new IllegalStateException("Invoice net amount plus tax must equal gross amount");
+        if (Math.subtractExact(Math.addExact(net, tax), withholding) != amount)
+            throw new IllegalStateException("Invoice net plus tax less withholding must equal payable gross amount");
         if (Math.addExact(paid, credited) > amount)
             throw new IllegalStateException("Invoice payments and credit notes exceed the gross amount");
         if (invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE
                 && (invoice.getOriginalInvoice() == null || invoice.getCreditNoteReason() == null || invoice.getCreditNoteReason().isBlank()))
             throw new IllegalStateException("Credit notes require an original invoice and a reason");
+        if (invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE
+                && invoice.getCreditNoteReasonCode() == CreditNoteReasonCode.TAX_CORRECTION
+                && (invoice.getTaxEvidenceType() == null || invoice.getTaxEvidenceReference() == null
+                || invoice.getTaxEvidenceReference().isBlank()))
+            throw new IllegalStateException("Tax correction credit notes require supporting evidence");
         if (invoice.getInvoiceStatus() == InvoiceStatus.PAID && (paid < amount || credited != 0))
             throw new IllegalStateException("PAID invoice state requires full payment and no credit note");
         if (invoice.getInvoiceStatus() == InvoiceStatus.CREDITED && (credited < amount || paid != 0))
@@ -110,7 +116,11 @@ public class InvoiceLifecycleListener {
 
     private String amountFingerprint(Invoice invoice) {
         return String.join("|", String.valueOf(invoice.getAmount()), String.valueOf(invoice.getNetAmount()),
-                String.valueOf(invoice.getTaxAmount()), String.valueOf(invoice.getCurrency() == null ? null : invoice.getCurrency().getId()),
+                String.valueOf(invoice.getTaxAmount()), String.valueOf(invoice.getWithholdingAmount()),
+                String.valueOf(invoice.getReverseChargeTaxAmount()), String.valueOf(invoice.getCreditNoteReason()),
+                String.valueOf(invoice.getCreditNoteReasonCode()), String.valueOf(invoice.getTaxEvidenceType()),
+                String.valueOf(invoice.getTaxEvidenceReference()),
+                String.valueOf(invoice.getCurrency() == null ? null : invoice.getCurrency().getId()),
                 String.valueOf(invoice.getInvoiceType()), String.valueOf(invoice.getOriginalInvoice() == null ? null : invoice.getOriginalInvoice().getId()));
     }
     private String settlementFingerprint(Invoice invoice) {

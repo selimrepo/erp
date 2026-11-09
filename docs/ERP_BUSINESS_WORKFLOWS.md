@@ -50,3 +50,51 @@ Partial receipts are supported through `POST /procurement/purchases/{id}/receive
 ## Completion boundary
 
 The workflow API provides transactional primitives, but production readiness still requires approved tenant accounting/tax policies, a verified migration strategy, complete return/refund treatment, and end-to-end tests against the supported database. The React console must expose the same line-level and reconciliation operations; an API capability is not operationally complete until the UI and authorization paths are covered.
+
+
+## Generic tax policies
+
+The tax module provides reusable, date-effective `TaxPolicy` records. A policy can be global or company-scoped and can optionally constrain jurisdiction (country or sub-national code), transaction type and tax category. Null scope values act as wildcards. Resolution chooses the most specific matching policy, then the lowest numeric priority, then the most recent effective date. Policies support tax-inclusive and tax-exclusive prices; the calculation API accepts and returns integer minor-unit amounts to match the current invoice amount convention.
+
+A policy must have a non-negative rate no greater than 100%, a valid date interval and a non-negative priority. The service fails closed when no active policy matches. The Flyway migration creates the policy table and lookup indexes.
+
+Authenticated policy management is available at `/api/tax-policies`: GET lists policies, POST creates one, PUT updates one, and POST `/{id}/deactivate` disables it without deleting history. POST `/calculate` resolves a policy and returns net, tax and gross minor-unit amounts. These endpoints require the `tax-policy` READ/WRITE authorization resource.
+
+This is a generic policy engine, not a preconfigured legal-tax catalogue. Tenants must configure rates, exemptions and effective dates for their jurisdictions. Reverse charge, withholding, compound taxes, multiple tax components and statutory invoice reporting are not implied by this basic rate model. The calculation service must be invoked by each invoice-creation workflow before it can be considered end-to-end tax automation.
+
+## Journal posting invariants
+
+At the persistence boundary, a journal can transition from DRAFT to POSTED only when:
+- its fiscal year and period exist, are open, and the entry date belongs to both;
+- the period belongs to the selected fiscal year;
+- it has at least two lines, each with exactly one positive debit or credit;
+- every line uses an unblocked account with posting enabled; and
+- total debit equals total credit and is greater than zero.
+
+Posted journal headers and lines remain immutable; corrections require reversal entries. Workflow services must still enforce authorization, idempotency, source-document linkage and transaction boundaries around posting.
+
+
+## Document workflow tax-policy integration
+
+Sales-order and purchase-order lines now resolve the generic, date-effective tax policy using the transaction type (`SALE` or `PURCHASE`), company/contact scope, jurisdiction and tax category. The request may provide `jurisdictionCode` and `taxCategory`; when category is omitted, the product tax-class title is used. The selected policy is persisted on each document line, alongside the calculated tax amount and gross line total. The generic policy engine takes precedence. An explicitly supplied legacy `taxRateId` is retained only as a compatibility fallback when no generic policy matches.
+
+Sales order creation calculates net/tax/gross from the selected policy before reserving stock and creating the invoice. Full purchase receipt creates the supplier invoice from the already-taxed purchase lines. These operations remain inside the existing workflow transaction, so a tax-resolution, stock, invoice or ledger-posting failure rolls the complete command back.
+
+For workflows that must also post the invoice immediately, sales-order requests may include `accountingPosting` together with `createInvoice=true`; full purchase-receipt requests may include the same `accountingPosting` object. Journal creation is then invoked inside the same transaction as the stock and invoice changes. The API checks journal/account authorization before accepting that option. The posting object supplies fiscal year, period, entry date, company and debit/credit/tax accounts. Existing separate invoice-posting endpoints remain available.
+
+Credit notes already preserve the original invoice relationship and proportionally reverse the original net/tax split. This is not a substitute for a jurisdiction-complete tax treatment model: exemption reason/certificate validation, withholding accounts and settlement, reverse-charge input/output tax entries, multi-component compound tax, statutory return forms and jurisdiction-specific rounding/reporting rules still require explicit policy fields and accounting mappings. A zero-rate policy can represent a zero-tax calculation, but does not by itself establish legal exemption eligibility.
+
+
+## Advanced tax treatments and credit-note controls
+
+The generic tax policy API supports ordered component definitions. Each component has a name, a rate, a sequence, a type (`STANDARD`, `COMPOUND`, `WITHHOLDING`, or `REVERSE_CHARGE`) and optional input/output tax-account mappings. Standard and compound components contribute to output/input tax; compound components calculate on the net base plus previously accumulated tax components. Tax-inclusive calculations solve the ordered component gross factor and reconcile rounding to the entered gross amount.
+
+Exemption policies use `treatment=EXEMPT`, an exact `exemptionCode`, and a mandatory `requiredEvidenceType`. Sales and purchase line requests must supply the matching exemption code, evidence type and evidence reference. The policy and evidence values are retained on the document line; the selected component amounts and account mappings are snapshotted so later policy edits do not rewrite posted document tax.
+
+Withholding components reduce the payable document amount and require a mapped withholding account. Ledger posting debits the withholding receivable for sales or credits withholding payable for purchases; credit notes reverse those directions. Reverse-charge components calculate a separate amount and require both input- and output-tax accounts; posting creates equal input/output journal lines, while credit notes reverse them. Multiple standard/compound components create separate tax journal lines using component account mappings or the document posting fallback tax account.
+
+Credit notes carry a structured reason code (`SALES_RETURN`, `PRICE_ADJUSTMENT`, `TAX_CORRECTION`, `CANCELLATION`, or `OTHER`). Tax-correction notes require an evidence type and reference. Each stored source tax component, withholding amount and reverse-charge amount is proportionally reversed and retained on the credit-note invoice; optional ledger posting is part of the credit-note transaction.
+
+The purchase goods-receipt workflow persists component snapshots on purchase details and transfers them to the supplier invoice only after full receipt. If invoice or ledger creation fails, receipt lines, stock movements, on-hand quantities, purchase status and invoice creation roll back together. The integration suite includes this rollback path alongside the sales rollback and credit-note component reversal.
+
+**Compliance boundary:** these are configurable calculation and accounting primitives, not a certification of any country's tax law. Jurisdiction-specific exemption eligibility, evidence validity against government registries, withholding thresholds/exclusions, reverse-charge transaction eligibility, statutory return boxes, special rounding and reporting deadlines must be configured and reviewed against the applicable legislation before production use.

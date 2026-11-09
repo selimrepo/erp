@@ -16,6 +16,10 @@ import com.erplancers.erp.crm.opportunity.domain.Opportunity;
 import com.erplancers.erp.projects.domain.Project;
 import com.erplancers.erp.projects.domain.ProjectTask;
 import com.erplancers.erp.support.domain.Case;
+import com.erplancers.erp.tax.domain.TaxPolicy;
+import com.erplancers.erp.tax.domain.TaxComponentType;
+import com.erplancers.erp.tax.domain.TaxRate;
+import com.erplancers.erp.tax.service.TaxPolicyService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.TypedQuery;
@@ -33,10 +37,13 @@ import java.util.*;
 @Service
 public class ErpWorkflowService {
     private final EntityManager em;
-    public ErpWorkflowService(EntityManager em) { this.em = em; }
+    private final TaxPolicyService taxPolicies;
+    public ErpWorkflowService(EntityManager em, TaxPolicyService taxPolicies) { this.em = em; this.taxPolicies = taxPolicies; }
 
     @Transactional
     public Map<String,Object> createSalesOrder(ErpWorkflowRequests.SalesOrder request) {
+        if (request.accountingPosting() != null && !request.createInvoice())
+            throw new IllegalArgumentException("Atomic ledger posting requires createInvoice=true");
         List<Order> existing = em.createQuery("select o from Order o where o.idempotencyKey=:key", Order.class)
                 .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
         String requestHash = hash(request.toString());
@@ -58,7 +65,8 @@ public class ErpWorkflowService {
         order.setIdempotencyKey(request.idempotencyKey()); order.setIdempotencyPayloadHash(requestHash); order.setTotalAmount(0L);
         order.setOrderCreationValidated(true);
         em.persist(order); em.flush();
-        long total = 0, totalTax = 0;
+        long total = 0, totalTax = 0, totalNet = 0, totalWithholding = 0, totalReverseCharge = 0;
+        List<TaxComponentSnapshot> invoiceTaxComponents = new ArrayList<>();
         for (int i=0;i<request.lines().size();i++) {
             ErpWorkflowRequests.SalesLine input = request.lines().get(i);
             Product product = required(Product.class, input.productId());
@@ -66,13 +74,29 @@ public class ErpWorkflowService {
             long available = stock.getQuantity() == null ? 0 : stock.getQuantity();
             if (available < input.quantity()) throw new IllegalStateException("Insufficient stock for product " + product.getId() + ": available " + available);
             long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
-            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, customer);
-            long lineTotal = Math.addExact(netAmount, tax.amount());
+            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, customer, "SALE", input.jurisdictionCode(), input.taxCategory(), customer.getContact(), input.exemptionCode(), input.evidenceType(), input.evidenceReference());
+            long lineTotal = tax.grossAmount();
             total = Math.addExact(total, lineTotal);
-            totalTax = Math.addExact(totalTax, tax.amount());
+            totalNet = Math.addExact(totalNet, tax.netAmount());
+            totalTax = Math.addExact(totalTax, tax.taxAmount());
+            totalWithholding = Math.addExact(totalWithholding, tax.withholdingAmount());
+            totalReverseCharge = Math.addExact(totalReverseCharge, tax.reverseChargeTaxAmount());
+            invoiceTaxComponents.addAll(tax.components());
             stock.setStockAdjustmentValidated(true); stock.setQuantity(available - input.quantity());
             OrderLine line = new OrderLine(); line.setOrder(order); line.setProduct(product);
-            line.setQuantity(input.quantity()); line.setUnitPrice(input.unitPrice()); line.setTaxRate(tax.rate()); line.setTaxAmount(tax.amount()); line.setLineTotal(lineTotal);
+            line.setQuantity(input.quantity()); line.setUnitPrice(input.unitPrice()); line.setTaxRate(tax.rate()); line.setTaxPolicy(tax.policy());
+            line.setTaxAmount(tax.taxAmount()); line.setWithholdingAmount(tax.withholdingAmount());
+            line.setReverseChargeTaxAmount(tax.reverseChargeTaxAmount()); line.setLineTotal(lineTotal);
+            line.setTaxExemptionCode(input.exemptionCode()); line.setTaxEvidenceType(input.evidenceType());
+            line.setTaxEvidenceReference(input.evidenceReference());
+            for (TaxComponentSnapshot snapshot : tax.components()) {
+                OrderLineTaxComponent component = new OrderLineTaxComponent();
+                component.setOrderLine(line); component.setName(snapshot.name()); component.setComponentType(snapshot.type());
+                component.setRate(snapshot.rate()); component.setAmount(snapshot.amount());
+                component.setOutputTaxAccount(snapshot.outputAccountId() == null ? null : required(Account.class, snapshot.outputAccountId()));
+                component.setInputTaxAccount(snapshot.inputAccountId() == null ? null : required(Account.class, snapshot.inputAccountId()));
+                line.getTaxComponents().add(component);
+            }
             order.getLines().add(line);
             movement(product, store, input.quantity(), "SALE_RESERVATION", "ORDER", order.getId().toString(), request.idempotencyKey()+":sale:"+i);
         }
@@ -81,11 +105,14 @@ public class ErpWorkflowService {
             Invoice invoice = new Invoice(); invoice.setInvoiceName("INV-S-" + order.getId());
             invoice.setInvoiceDescription("Sales order " + order.getId()); invoice.setAmount(total);
             invoice.setPaidAmount(0L); invoice.setCurrency(currency); invoice.setInvoiceType(InvoiceType.SALE);
-            invoice.setNetAmount(total - totalTax); invoice.setTaxAmount(totalTax);
+            invoice.setNetAmount(totalNet); invoice.setTaxAmount(totalTax);
+            invoice.setWithholdingAmount(totalWithholding); invoice.setReverseChargeTaxAmount(totalReverseCharge);
+            attachTaxComponents(invoice, invoiceTaxComponents);
             invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED); invoice.setWorkflowKey("sales:"+request.idempotencyKey());
             invoice.setBillingContacts(Set.of(contact)); invoice.setShippingContacts(Set.of(contact));
             invoice.setCreationValidated(true);
             em.persist(invoice); order.setInvoice(invoice);
+            if (request.accountingPosting() != null) { em.flush(); postInvoiceToLedger(invoice.getId(), request.accountingPosting()); }
         }
         em.flush();
         return result("order", order.getId(), "invoiceId", order.getInvoice()==null?null:order.getInvoice().getId(),
@@ -152,11 +179,22 @@ public class ErpWorkflowService {
         for (ErpWorkflowRequests.PurchaseLine input : request.lines()) {
             Product product = required(Product.class, input.productId());
             long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
-            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, null);
-            long lineTotal = Math.addExact(netAmount, tax.amount()); total=Math.addExact(total,lineTotal); totalTax=Math.addExact(totalTax,tax.amount());
+            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, null, "PURCHASE", input.jurisdictionCode(), input.taxCategory(), supplier.getContact(), input.exemptionCode(), input.evidenceType(), input.evidenceReference());
+            long lineTotal = tax.grossAmount(); total=Math.addExact(total,lineTotal); totalTax=Math.addExact(totalTax,tax.taxAmount());
             PurchaseDetail detail = new PurchaseDetail(); detail.setPurchase(purchase); detail.setSupplier(supplier);
             detail.setProduct(product); detail.setQuantity(input.quantity()); detail.setPrice(input.unitPrice());
-            detail.setTaxRate(tax.rate()); detail.setTaxAmount(tax.amount()); detail.setLineTotal(lineTotal);
+            detail.setTaxRate(tax.rate()); detail.setTaxPolicy(tax.policy()); detail.setTaxAmount(tax.taxAmount());
+            detail.setWithholdingAmount(tax.withholdingAmount()); detail.setReverseChargeTaxAmount(tax.reverseChargeTaxAmount());
+            detail.setTaxExemptionCode(input.exemptionCode()); detail.setTaxEvidenceType(input.evidenceType());
+            detail.setTaxEvidenceReference(input.evidenceReference()); detail.setLineTotal(lineTotal);
+            for (TaxComponentSnapshot snapshot : tax.components()) {
+                PurchaseDetailTaxComponent component = new PurchaseDetailTaxComponent();
+                component.setPurchaseDetail(detail); component.setName(snapshot.name()); component.setComponentType(snapshot.type());
+                component.setRate(snapshot.rate()); component.setAmount(snapshot.amount());
+                component.setOutputTaxAccount(snapshot.outputAccountId() == null ? null : required(Account.class, snapshot.outputAccountId()));
+                component.setInputTaxAccount(snapshot.inputAccountId() == null ? null : required(Account.class, snapshot.inputAccountId()));
+                detail.getTaxComponents().add(component);
+            }
             purchase.getPurchaseDetails().add(detail);
         }
         purchase.setTotalAmount(total); purchase.setTaxAmount(totalTax); em.flush();
@@ -279,17 +317,18 @@ public class ErpWorkflowService {
 
     @Transactional
     public Map<String,Object> receivePurchase(Long purchaseId, ErpWorkflowRequests.ReceivePurchase request, Long storeId) {
-        return receivePurchaseLines(purchaseId, request.idempotencyKey(), null, storeId);
+        return receivePurchaseLines(purchaseId, request.idempotencyKey(), null, storeId, request.accountingPosting());
     }
 
     @Transactional
     public Map<String,Object> receivePurchasePartial(Long purchaseId, ErpWorkflowRequests.PartialReceivePurchase request, Long storeId) {
-        return receivePurchaseLines(purchaseId, request.idempotencyKey(), request.lines(), storeId);
+        return receivePurchaseLines(purchaseId, request.idempotencyKey(), request.lines(), storeId, request.accountingPosting());
     }
 
     private Map<String,Object> receivePurchaseLines(Long purchaseId, String idempotencyKey,
-            List<ErpWorkflowRequests.PurchaseReceiptLineInput> requestedLines, Long storeId) {
-        String receiptPayload = purchaseId + "|" + (requestedLines == null ? "ALL_OUTSTANDING" : requestedLines.toString()) + "|" + storeId;
+            List<ErpWorkflowRequests.PurchaseReceiptLineInput> requestedLines, Long storeId,
+            ErpWorkflowRequests.DocumentPosting accountingPosting) {
+        String receiptPayload = purchaseId + "|" + (requestedLines == null ? "ALL_OUTSTANDING" : requestedLines.toString()) + "|" + storeId + "|" + accountingPosting;
         String receiptHash = hash(receiptPayload);
         Purchase purchase = em.find(Purchase.class, purchaseId, LockModeType.PESSIMISTIC_WRITE);
         if (purchase == null) throw new IllegalArgumentException("Purchase not found: " + purchaseId);
@@ -299,6 +338,11 @@ public class ErpWorkflowService {
             PurchaseReceipt prior = previous.get(0);
             if (!Objects.equals(prior.getPurchase().getId(), purchaseId) || !Objects.equals(prior.getPayloadHash(), receiptHash))
                 throw new IllegalArgumentException("Receipt idempotency key was reused for a different receipt payload");
+            if (accountingPosting != null && prior.getPurchase().getInvoice() != null
+                    && prior.getPurchase().getInvoice().getLedgerJournalEntry() == null) {
+                em.flush();
+                postInvoiceToLedger(prior.getPurchase().getInvoice().getId(), accountingPosting);
+            }
             return result("purchase", purchaseId, "receipt", prior.getId(), "status", prior.getPurchase().getStatus(), "idempotentReplay", true);
         }
         if (!Set.of("ORDERED", "PARTIALLY_RECEIVED").contains(purchase.getStatus()))
@@ -354,20 +398,37 @@ public class ErpWorkflowService {
         }
         boolean fullyReceived = purchase.getPurchaseDetails().stream().allMatch(d ->
                 (d.getReceivedQuantity() == null ? 0L : d.getReceivedQuantity()) >= d.getQuantity());
+        if (!fullyReceived && accountingPosting != null)
+            throw new IllegalStateException("Invoice ledger posting is only available when the purchase is fully received");
         purchase.setReceiptValidated(true);
         purchase.setStatus(fullyReceived ? "RECEIVED" : "PARTIALLY_RECEIVED");
         purchase.setReceiptIdempotencyKey(idempotencyKey);
         if (fullyReceived && purchase.getInvoice() == null) {
+            long withholding = purchase.getPurchaseDetails().stream().mapToLong(d -> d.getWithholdingAmount() == null ? 0L : d.getWithholdingAmount()).sum();
+            long reverseCharge = purchase.getPurchaseDetails().stream().mapToLong(d -> d.getReverseChargeTaxAmount() == null ? 0L : d.getReverseChargeTaxAmount()).sum();
+            List<TaxComponentSnapshot> componentSnapshots = purchase.getPurchaseDetails().stream()
+                    .flatMap(d -> d.getTaxComponents().stream())
+                    .map(c -> new TaxComponentSnapshot(c.getName(), c.getComponentType(), c.getRate(), c.getAmount(),
+                            c.getOutputTaxAccount() == null ? null : c.getOutputTaxAccount().getId(),
+                            c.getInputTaxAccount() == null ? null : c.getInputTaxAccount().getId())).toList();
             Invoice invoice = new Invoice(); invoice.setInvoiceName("INV-P-" + purchaseId);
             invoice.setInvoiceDescription("Supplier invoice for purchase " + purchaseId);
             invoice.setAmount(purchase.getTotalAmount()); invoice.setPaidAmount(0L);
-            invoice.setTaxAmount(purchase.getTaxAmount()); invoice.setNetAmount(purchase.getTotalAmount()-purchase.getTaxAmount());
+            invoice.setTaxAmount(purchase.getTaxAmount());
+            invoice.setWithholdingAmount(withholding); invoice.setReverseChargeTaxAmount(reverseCharge);
+            invoice.setNetAmount(Math.addExact(purchase.getTotalAmount(), withholding) - purchase.getTaxAmount());
+            attachTaxComponents(invoice, componentSnapshots);
             invoice.setCurrency(purchase.getCurrency()); invoice.setInvoiceType(InvoiceType.PURCHASE);
             invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED); invoice.setWorkflowKey("purchase:" + purchase.getIdempotencyKey());
             if (purchase.getSupplier().getContact()!=null) invoice.setBillingContacts(Set.of(purchase.getSupplier().getContact()));
             invoice.setCreationValidated(true);
             em.persist(invoice); purchase.setInvoice(invoice);
             purchase.setApprovedDate(LocalDateTime.now());
+        }
+        if (accountingPosting != null && purchase.getInvoice() != null
+                && purchase.getInvoice().getLedgerJournalEntry() == null) {
+            em.flush();
+            postInvoiceToLedger(purchase.getInvoice().getId(), accountingPosting);
         }
         em.flush();
         return result("purchase", purchaseId, "receipt", receipt.getId(), "receivedQuantity", receivedTotal,
@@ -625,25 +686,44 @@ public class ErpWorkflowService {
 
     @Transactional
     public Map<String,Object> createCreditNote(Long invoiceId, ErpWorkflowRequests.CreditNote request) {
+        CreditNoteReasonCode reasonCode;
+        try { reasonCode = request.reasonCode() == null || request.reasonCode().isBlank()
+                ? CreditNoteReasonCode.OTHER : CreditNoteReasonCode.valueOf(request.reasonCode().trim().toUpperCase(Locale.ROOT)); }
+        catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("Unsupported credit-note reason code", invalid); }
+        if (reasonCode == CreditNoteReasonCode.TAX_CORRECTION
+                && (request.evidenceType() == null || request.evidenceType().isBlank()
+                || request.evidenceReference() == null || request.evidenceReference().isBlank()))
+            throw new IllegalArgumentException("Tax correction credit notes require a supporting evidence reference");
+
         List<Invoice> prior = em.createQuery("select i from Invoice i where i.workflowKey=:key", Invoice.class)
                 .setParameter("key", "credit-note:" + request.idempotencyKey()).setMaxResults(1).getResultList();
         if (!prior.isEmpty()) {
             Invoice note = prior.get(0);
             if (note.getOriginalInvoice()==null || !Objects.equals(note.getOriginalInvoice().getId(), invoiceId)
-                    || !Objects.equals(note.getAmount(), request.amount()) || !Objects.equals(note.getCreditNoteReason(), request.reason()))
+                    || !Objects.equals(note.getAmount(), request.amount()) || !Objects.equals(note.getCreditNoteReason(), request.reason())
+                    || note.getCreditNoteReasonCode() != reasonCode
+                    || !Objects.equals(note.getTaxEvidenceType(), request.evidenceType())
+                    || !Objects.equals(note.getTaxEvidenceReference(), request.evidenceReference()))
                 throw new IllegalArgumentException("Credit note idempotency key was reused with a different payload");
+            if (request.accountingPosting() != null && note.getLedgerJournalEntry() == null) {
+                Invoice source = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
+                if (source == null || source.getLedgerJournalEntry() == null)
+                    throw new IllegalStateException("A credit note can only be posted when its original invoice has been posted to the ledger");
+                em.flush();
+                postInvoiceToLedger(note.getId(), request.accountingPosting());
+            }
             return result("creditNote", note.getId(), "originalInvoice", invoiceId, "idempotentReplay", true);
         }
         Invoice original = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
         if (original == null) throw new IllegalArgumentException("Invoice not found: " + invoiceId);
-        // The invoice lock serializes credit-note retries for the same source document.
         List<Invoice> concurrentReplay = em.createQuery("select i from Invoice i where i.workflowKey=:key", Invoice.class)
                 .setParameter("key", "credit-note:" + request.idempotencyKey()).setMaxResults(1).getResultList();
         if (!concurrentReplay.isEmpty()) {
             Invoice note = concurrentReplay.get(0);
             if (note.getOriginalInvoice() == null || !Objects.equals(note.getOriginalInvoice().getId(), invoiceId)
-                    || !Objects.equals(note.getAmount(), request.amount())
-                    || !Objects.equals(note.getCreditNoteReason(), request.reason()))
+                    || !Objects.equals(note.getAmount(), request.amount()) || !Objects.equals(note.getCreditNoteReason(), request.reason())
+                    || note.getCreditNoteReasonCode() != reasonCode
+                    || !Objects.equals(note.getTaxEvidenceReference(), request.evidenceReference()))
                 throw new IllegalArgumentException("Credit note idempotency key was reused with a different payload");
             return result("creditNote", note.getId(), "originalInvoice", invoiceId, "idempotentReplay", true);
         }
@@ -655,18 +735,50 @@ public class ErpWorkflowService {
         long credited = original.getCreditedAmount() == null ? 0L : original.getCreditedAmount();
         long outstanding = amount - paid - credited;
         if (request.amount() > outstanding) throw new IllegalArgumentException("Credit note exceeds outstanding invoice balance " + outstanding);
+        if (request.accountingPosting() != null && original.getLedgerJournalEntry() == null)
+            throw new IllegalStateException("A credit note can only be posted when its original invoice has been posted to the ledger");
+
         Invoice note = new Invoice();
         note.setInvoiceName("CN-" + original.getId() + "-" + UUID.randomUUID().toString().substring(0, 8));
         note.setInvoiceDescription("Credit note for invoice " + original.getInvoiceName());
         note.setAmount(request.amount()); note.setPaidAmount(0L); note.setCreditedAmount(0L);
-        long originalNet = original.getNetAmount()==null?amount:original.getNetAmount();
-        long originalTax = original.getTaxAmount()==null?0L:original.getTaxAmount();
-        long noteTax = amount == 0 ? 0L : BigDecimal.valueOf(request.amount()).multiply(BigDecimal.valueOf(originalTax))
-                .divide(BigDecimal.valueOf(amount), 0, java.math.RoundingMode.HALF_UP).longValueExact();
-        note.setTaxAmount(noteTax); note.setNetAmount(request.amount()-noteTax);
+        long noteTax = 0L, noteWithholding = 0L, noteReverseCharge = 0L;
+        if (original.getTaxComponents() != null && !original.getTaxComponents().isEmpty()) {
+            for (InvoiceTaxComponent source : original.getTaxComponents()) {
+                long scaled = amount == 0 ? 0L : BigDecimal.valueOf(source.getAmount())
+                        .multiply(BigDecimal.valueOf(request.amount()))
+                        .divide(BigDecimal.valueOf(amount), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+                InvoiceTaxComponent component = new InvoiceTaxComponent();
+                component.setInvoice(note); component.setName(source.getName()); component.setComponentType(source.getComponentType());
+                component.setRate(source.getRate()); component.setAmount(scaled);
+                component.setOutputTaxAccount(source.getOutputTaxAccount()); component.setInputTaxAccount(source.getInputTaxAccount());
+                note.getTaxComponents().add(component);
+                if (source.getComponentType() == TaxComponentType.STANDARD || source.getComponentType() == TaxComponentType.COMPOUND)
+                    noteTax = Math.addExact(noteTax, scaled);
+                else if (source.getComponentType() == TaxComponentType.WITHHOLDING)
+                    noteWithholding = Math.addExact(noteWithholding, scaled);
+                else if (source.getComponentType() == TaxComponentType.REVERSE_CHARGE)
+                    noteReverseCharge = Math.addExact(noteReverseCharge, scaled);
+            }
+        } else {
+            long originalTax = original.getTaxAmount() == null ? 0L : original.getTaxAmount();
+            long originalWithholding = original.getWithholdingAmount() == null ? 0L : original.getWithholdingAmount();
+            long originalReverse = original.getReverseChargeTaxAmount() == null ? 0L : original.getReverseChargeTaxAmount();
+            noteTax = amount == 0 ? 0L : BigDecimal.valueOf(request.amount()).multiply(BigDecimal.valueOf(originalTax))
+                    .divide(BigDecimal.valueOf(amount), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+            noteWithholding = amount == 0 ? 0L : BigDecimal.valueOf(request.amount()).multiply(BigDecimal.valueOf(originalWithholding))
+                    .divide(BigDecimal.valueOf(amount), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+            noteReverseCharge = amount == 0 ? 0L : BigDecimal.valueOf(request.amount()).multiply(BigDecimal.valueOf(originalReverse))
+                    .divide(BigDecimal.valueOf(amount), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+        }
+        note.setTaxAmount(noteTax); note.setWithholdingAmount(noteWithholding);
+        note.setReverseChargeTaxAmount(noteReverseCharge);
+        note.setNetAmount(Math.addExact(request.amount(), noteWithholding) - noteTax);
         note.setCurrency(original.getCurrency()); note.setInvoiceType(InvoiceType.CREDIT_NOTE);
         note.setInvoiceStatus(InvoiceStatus.CONFIRMED); note.setOriginalInvoice(original);
-        note.setCreditNoteReason(request.reason()); note.setWorkflowKey("credit-note:" + request.idempotencyKey());
+        note.setCreditNoteReason(request.reason()); note.setCreditNoteReasonCode(reasonCode);
+        note.setTaxEvidenceType(request.evidenceType()); note.setTaxEvidenceReference(request.evidenceReference());
+        note.setWorkflowKey("credit-note:" + request.idempotencyKey());
         note.setCreationValidated(true);
         note.setBillingContacts(original.getBillingContacts()); note.setShippingContacts(original.getShippingContacts());
         em.persist(note);
@@ -677,9 +789,13 @@ public class ErpWorkflowService {
                 ? (paid > 0 ? InvoiceStatus.SETTLED : InvoiceStatus.CREDITED)
                 : (paid > 0 ? InvoiceStatus.PARTIALLY_SETTLED : InvoiceStatus.PARTIALLY_CREDITED));
         em.flush();
+        if (request.accountingPosting() != null)
+            postInvoiceToLedger(note.getId(), request.accountingPosting());
         return result("creditNote", note.getId(), "originalInvoice", invoiceId,
                 "creditedAmount", original.getCreditedAmount(), "outstandingAmount", amount-totalSettled,
-                "status", original.getInvoiceStatus().name(), "idempotentReplay", false);
+                "taxAmount", noteTax, "withholdingAmount", noteWithholding,
+                "reverseChargeTaxAmount", noteReverseCharge, "status", original.getInvoiceStatus().name(),
+                "idempotentReplay", false);
     }
 
     @Transactional
@@ -692,40 +808,123 @@ public class ErpWorkflowService {
                 InvoiceStatus.PARTIALLY_SETTLED, InvoiceStatus.PAID, InvoiceStatus.CREDITED, InvoiceStatus.SETTLED)
                 .contains(invoice.getInvoiceStatus()))
             throw new IllegalStateException("Only confirmed or settled invoices without a ledger entry can be posted");
-        long gross = invoice.getAmount() == null ? 0L : invoice.getAmount();
+        long payable = invoice.getAmount() == null ? 0L : invoice.getAmount();
         long taxAmount = invoice.getTaxAmount() == null ? 0L : invoice.getTaxAmount();
-        long net = invoice.getNetAmount() == null ? gross - taxAmount : invoice.getNetAmount();
-        if (gross <= 0 || net < 0 || taxAmount < 0 || Math.addExact(net, taxAmount) != gross)
-            throw new IllegalStateException("Invoice net, tax and gross totals are inconsistent");
+        long withholdingAmount = invoice.getWithholdingAmount() == null ? 0L : invoice.getWithholdingAmount();
+        long reverseChargeAmount = invoice.getReverseChargeTaxAmount() == null ? 0L : invoice.getReverseChargeTaxAmount();
+        long net = invoice.getNetAmount() == null ? Math.addExact(payable, withholdingAmount) - taxAmount : invoice.getNetAmount();
+        long taxableGross = Math.addExact(net, taxAmount);
+        if (payable <= 0 || net < 0 || taxAmount < 0 || withholdingAmount < 0
+                || Math.subtractExact(taxableGross, withholdingAmount) != payable)
+            throw new IllegalStateException("Invoice net, tax, withholding and payable totals are inconsistent");
         Account primary = required(Account.class, request.debitAccountId());
         Account counter = required(Account.class, request.creditAccountId());
-        Account tax = request.taxAccountId() == null ? null : required(Account.class, request.taxAccountId());
+        Account fallbackTax = request.taxAccountId() == null ? null : required(Account.class, request.taxAccountId());
+        Account fallbackWithholding = request.withholdingAccountId() == null ? null : required(Account.class, request.withholdingAccountId());
+        Account fallbackReverseInput = request.reverseChargeInputAccountId() == null ? null : required(Account.class, request.reverseChargeInputAccountId());
+        Account fallbackReverseOutput = request.reverseChargeOutputAccountId() == null ? null : required(Account.class, request.reverseChargeOutputAccountId());
         boolean creditNote = invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE;
         InvoiceType sourceType = creditNote && invoice.getOriginalInvoice() != null
                 ? invoice.getOriginalInvoice().getInvoiceType() : invoice.getInvoiceType();
         if (creditNote && invoice.getOriginalInvoice() == null)
             throw new IllegalStateException("Credit note has no original invoice");
-        if (taxAmount > 0 && tax == null)
-            throw new IllegalArgumentException("Tax account is required for taxable invoice posting");
+        List<InvoiceTaxComponent> components = invoice.getTaxComponents() == null ? List.of()
+                : invoice.getTaxComponents().stream().toList();
         List<ErpWorkflowRequests.JournalLine> lines = new ArrayList<>();
-        if (sourceType == InvoiceType.SALE && !creditNote) {
-            lines.add(new ErpWorkflowRequests.JournalLine(primary.getId(), BigDecimal.valueOf(gross), BigDecimal.ZERO, "Accounts receivable"));
+        boolean sale = sourceType == InvoiceType.SALE;
+        if (sale && !creditNote) {
+            lines.add(new ErpWorkflowRequests.JournalLine(primary.getId(), BigDecimal.valueOf(payable), BigDecimal.ZERO, "Accounts receivable"));
             lines.add(new ErpWorkflowRequests.JournalLine(counter.getId(), BigDecimal.ZERO, BigDecimal.valueOf(net), "Sales revenue"));
-            if (taxAmount > 0) lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.ZERO, BigDecimal.valueOf(taxAmount), "Output tax"));
         } else if (sourceType == InvoiceType.PURCHASE && !creditNote) {
             lines.add(new ErpWorkflowRequests.JournalLine(primary.getId(), BigDecimal.valueOf(net), BigDecimal.ZERO, "Purchase expense or inventory"));
-            if (taxAmount > 0) lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.valueOf(taxAmount), BigDecimal.ZERO, "Input tax"));
-            lines.add(new ErpWorkflowRequests.JournalLine(counter.getId(), BigDecimal.ZERO, BigDecimal.valueOf(gross), "Accounts payable"));
-        } else if (sourceType == InvoiceType.SALE) {
+            lines.add(new ErpWorkflowRequests.JournalLine(counter.getId(), BigDecimal.ZERO, BigDecimal.valueOf(payable), "Accounts payable"));
+        } else if (sale) {
             lines.add(new ErpWorkflowRequests.JournalLine(counter.getId(), BigDecimal.valueOf(net), BigDecimal.ZERO, "Sales returns"));
-            if (taxAmount > 0) lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.valueOf(taxAmount), BigDecimal.ZERO, "Output tax reversal"));
-            lines.add(new ErpWorkflowRequests.JournalLine(primary.getId(), BigDecimal.ZERO, BigDecimal.valueOf(gross), "Accounts receivable credit"));
+            lines.add(new ErpWorkflowRequests.JournalLine(primary.getId(), BigDecimal.ZERO, BigDecimal.valueOf(payable), "Accounts receivable credit"));
         } else if (sourceType == InvoiceType.PURCHASE) {
-            lines.add(new ErpWorkflowRequests.JournalLine(counter.getId(), BigDecimal.valueOf(gross), BigDecimal.ZERO, "Accounts payable credit"));
+            lines.add(new ErpWorkflowRequests.JournalLine(counter.getId(), BigDecimal.valueOf(payable), BigDecimal.ZERO, "Accounts payable credit"));
             lines.add(new ErpWorkflowRequests.JournalLine(primary.getId(), BigDecimal.ZERO, BigDecimal.valueOf(net), "Purchase return"));
-            if (taxAmount > 0) lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.ZERO, BigDecimal.valueOf(taxAmount), "Input tax reversal"));
         } else {
             throw new IllegalStateException("Unsupported invoice type for ledger posting");
+        }
+
+        long componentOutputTax = 0L, componentWithholding = 0L, componentReverse = 0L;
+        for (InvoiceTaxComponent component : components) {
+            long amount = component.getAmount() == null ? 0L : component.getAmount();
+            if (amount < 0) throw new IllegalStateException("Tax component amount cannot be negative");
+            TaxComponentType type = component.getComponentType();
+            if (type == TaxComponentType.STANDARD || type == TaxComponentType.COMPOUND) {
+                componentOutputTax = Math.addExact(componentOutputTax, amount);
+                Account taxAccount = (sale ? component.getOutputTaxAccount() : component.getInputTaxAccount()) != null
+                        ? (sale ? component.getOutputTaxAccount() : component.getInputTaxAccount()) : fallbackTax;
+                if (amount > 0 && taxAccount == null)
+                    throw new IllegalArgumentException("Output/input tax account is required for tax component " + component.getName());
+                if (amount > 0) {
+                    if (sale ? creditNote : !creditNote)
+                        lines.add(new ErpWorkflowRequests.JournalLine(taxAccount.getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, component.getName() + " tax reversal"));
+                    else
+                        lines.add(new ErpWorkflowRequests.JournalLine(taxAccount.getId(), BigDecimal.ZERO,
+                                BigDecimal.valueOf(amount), component.getName() + (sale ? " output tax" : " input tax")));
+                }
+            } else if (type == TaxComponentType.WITHHOLDING) {
+                componentWithholding = Math.addExact(componentWithholding, amount);
+                Account withholdingAccount = component.getOutputTaxAccount() != null ? component.getOutputTaxAccount() : fallbackWithholding;
+                if (amount > 0 && withholdingAccount == null)
+                    throw new IllegalArgumentException("Withholding account is required for component " + component.getName());
+                if (amount > 0) {
+                    boolean debit = sale != creditNote;
+                    lines.add(new ErpWorkflowRequests.JournalLine(withholdingAccount.getId(),
+                            debit ? BigDecimal.valueOf(amount) : BigDecimal.ZERO,
+                            debit ? BigDecimal.ZERO : BigDecimal.valueOf(amount), component.getName() + " withholding"));
+                }
+            } else if (type == TaxComponentType.REVERSE_CHARGE) {
+                componentReverse = Math.addExact(componentReverse, amount);
+                Account inputAccount = component.getInputTaxAccount() != null ? component.getInputTaxAccount() : fallbackReverseInput;
+                Account outputAccount = component.getOutputTaxAccount() != null ? component.getOutputTaxAccount() : fallbackReverseOutput;
+                if (amount > 0 && (inputAccount == null || outputAccount == null))
+                    throw new IllegalArgumentException("Reverse-charge input and output tax accounts are required");
+                if (amount > 0) {
+                    if (!creditNote) {
+                        lines.add(new ErpWorkflowRequests.JournalLine(inputAccount.getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, "Reverse-charge input tax"));
+                        lines.add(new ErpWorkflowRequests.JournalLine(outputAccount.getId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), "Reverse-charge output tax"));
+                    } else {
+                        lines.add(new ErpWorkflowRequests.JournalLine(outputAccount.getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, "Reverse-charge output tax reversal"));
+                        lines.add(new ErpWorkflowRequests.JournalLine(inputAccount.getId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), "Reverse-charge input tax reversal"));
+                    }
+                }
+            }
+        }
+        if (components.isEmpty()) {
+            if (taxAmount > 0 && fallbackTax == null)
+                throw new IllegalArgumentException("Tax account is required for taxable invoice posting");
+            if (taxAmount > 0) {
+                if (sale ? creditNote : !creditNote)
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackTax.getId(), BigDecimal.valueOf(taxAmount), BigDecimal.ZERO, "Output tax reversal"));
+                else
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackTax.getId(), BigDecimal.ZERO,
+                            BigDecimal.valueOf(taxAmount), sale ? "Output tax" : "Input tax"));
+            }
+            if (withholdingAmount > 0) {
+                if (fallbackWithholding == null) throw new IllegalArgumentException("Withholding account is required");
+                boolean debit = sale != creditNote;
+                lines.add(new ErpWorkflowRequests.JournalLine(fallbackWithholding.getId(),
+                        debit ? BigDecimal.valueOf(withholdingAmount) : BigDecimal.ZERO,
+                        debit ? BigDecimal.ZERO : BigDecimal.valueOf(withholdingAmount), "Withholding"));
+            }
+            if (reverseChargeAmount > 0) {
+                if (fallbackReverseInput == null || fallbackReverseOutput == null)
+                    throw new IllegalArgumentException("Reverse-charge input and output tax accounts are required");
+                if (!creditNote) {
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackReverseInput.getId(), BigDecimal.valueOf(reverseChargeAmount), BigDecimal.ZERO, "Reverse-charge input tax"));
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackReverseOutput.getId(), BigDecimal.ZERO, BigDecimal.valueOf(reverseChargeAmount), "Reverse-charge output tax"));
+                } else {
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackReverseOutput.getId(), BigDecimal.valueOf(reverseChargeAmount), BigDecimal.ZERO, "Reverse-charge output tax reversal"));
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackReverseInput.getId(), BigDecimal.ZERO, BigDecimal.valueOf(reverseChargeAmount), "Reverse-charge input tax reversal"));
+                }
+            }
+        } else if (componentOutputTax != taxAmount || componentWithholding != withholdingAmount
+                || componentReverse != reverseChargeAmount) {
+            throw new IllegalStateException("Persisted tax component totals do not match invoice tax totals");
         }
         String entryId = (creditNote ? "CN-" : "INV-") + invoiceId;
         ErpWorkflowRequests.JournalPost journal = new ErpWorkflowRequests.JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
@@ -956,46 +1155,73 @@ public class ErpWorkflowService {
         StockMovement m=new StockMovement(); m.setProduct(product); m.setStore(store); m.setQuantity(quantity); m.setMovementValidated(true);
         m.setMovementType(type); m.setReferenceType(refType); m.setReferenceId(refId); m.setIdempotencyKey(movementKey); m.setOccurredAt(Instant.now()); em.persist(m);
     }
-    private TaxCalculation calculateTax(long netAmount, Long taxRateId, Product product, Customer customer) {
-        com.erplancers.erp.tax.domain.TaxRate rate = null;
-        if (taxRateId != null) {
-            rate = required(com.erplancers.erp.tax.domain.TaxRate.class, taxRateId);
-            Long selectedTaxRateId = rate.getId();
-            if (product.getTaxClass() != null && (product.getTaxClass().getTaxRates() == null
-                    || product.getTaxClass().getTaxRates().stream().noneMatch(candidate -> Objects.equals(candidate.getId(), selectedTaxRateId))))
-                throw new IllegalArgumentException("Selected tax rate does not belong to the product tax class");
-            Long customerGroupId = customer == null || customer.getCustomerGroup() == null ? null : customer.getCustomerGroup().getId();
-            if (rate.getCustomerGroups() != null && !rate.getCustomerGroups().isEmpty()
-                    && (customerGroupId == null || rate.getCustomerGroups().stream()
-                    .noneMatch(group -> Objects.equals(group.getId(), customerGroupId))))
-                throw new IllegalArgumentException("Selected tax rate does not apply to the customer's group");
-        } else if (product.getTaxClass() != null) {
-            Set<com.erplancers.erp.tax.domain.TaxRate> candidates = product.getTaxClass().getTaxRates();
-            if (candidates == null || candidates.isEmpty())
-                throw new IllegalStateException("Product tax class has no configured tax rates: " + product.getTaxClass().getId());
-            Long customerGroupId = customer == null || customer.getCustomerGroup() == null ? null : customer.getCustomerGroup().getId();
-            List<com.erplancers.erp.tax.domain.TaxRate> specific = candidates.stream()
-                    .filter(candidate -> candidate.getCustomerGroups() != null && customerGroupId != null
-                            && candidate.getCustomerGroups().stream().anyMatch(group -> Objects.equals(group.getId(), customerGroupId)))
-                    .toList();
-            List<com.erplancers.erp.tax.domain.TaxRate> defaults = candidates.stream()
-                    .filter(candidate -> candidate.getCustomerGroups() == null || candidate.getCustomerGroups().isEmpty())
-                    .toList();
-            List<com.erplancers.erp.tax.domain.TaxRate> selected = specific.isEmpty() ? defaults : specific;
-            if (selected.size() != 1)
-                throw new IllegalStateException("Tax class must resolve to exactly one applicable tax rate for product " + product.getId());
-            rate = selected.get(0);
+    /**
+     * Explicit legacy tax-rate IDs remain supported for old integrations. New documents
+     * without a legacy ID must resolve a date-effective generic policy; no silent zero-tax
+     * fallback is allowed when a policy is missing.
+     */
+    private TaxCalculation calculateTax(long enteredAmount, Long legacyTaxRateId, Product product, Customer customer,
+                                        String transactionType, String jurisdictionCode, String requestedCategory,
+                                        Contact taxSubject, String exemptionCode, String evidenceType, String evidenceReference) {
+        String category = requestedCategory;
+        if ((category == null || category.isBlank()) && product.getTaxClass() != null)
+            category = product.getTaxClass().getTitle();
+        try {
+            TaxPolicyService.DetailedTaxCalculation result = taxPolicies.calculateDetailed(taxSubject,
+                    jurisdictionCode, transactionType, category, LocalDate.now(), enteredAmount,
+                    exemptionCode, evidenceType, evidenceReference);
+            TaxPolicy policy = required(TaxPolicy.class, result.policyId());
+            List<TaxComponentSnapshot> components = result.components().stream()
+                    .map(c -> new TaxComponentSnapshot(c.name(), c.componentType(), c.rate(), c.amount(),
+                            c.outputTaxAccountId(), c.inputTaxAccountId())).toList();
+            return new TaxCalculation(null, policy, result.netAmount(), result.taxAmount(),
+                    result.withholdingAmount(), result.reverseChargeTaxAmount(), result.grossAmount(), components);
+        } catch (IllegalStateException noMatchingPolicy) {
+            if (legacyTaxRateId == null
+                    || !Objects.equals(noMatchingPolicy.getMessage(), "No active tax policy matches the transaction"))
+                throw noMatchingPolicy;
         }
-        if (rate == null) return new TaxCalculation(null, 0L);
+
+        TaxRate rate = required(TaxRate.class, legacyTaxRateId);
+        Long selectedTaxRateId = rate.getId();
+        if (product.getTaxClass() != null && (product.getTaxClass().getTaxRates() == null
+                || product.getTaxClass().getTaxRates().stream().noneMatch(candidate -> Objects.equals(candidate.getId(), selectedTaxRateId))))
+            throw new IllegalArgumentException("Selected tax rate does not belong to the product tax class");
+        Long customerGroupId = customer == null || customer.getCustomerGroup() == null ? null : customer.getCustomerGroup().getId();
+        if (rate.getCustomerGroups() != null && !rate.getCustomerGroups().isEmpty()
+                && (customerGroupId == null || rate.getCustomerGroups().stream()
+                .noneMatch(group -> Objects.equals(group.getId(), customerGroupId))))
+            throw new IllegalArgumentException("Selected tax rate does not apply to the customer's group");
         float percentage = rate.getRate();
         if (!Float.isFinite(percentage) || percentage < 0f || percentage > 100f)
             throw new IllegalStateException("Tax rate must be between 0 and 100 percent");
-        long tax = BigDecimal.valueOf(netAmount).multiply(new BigDecimal(Float.toString(percentage)))
+        long tax = BigDecimal.valueOf(enteredAmount).multiply(new BigDecimal(Float.toString(percentage)))
                 .divide(BigDecimal.valueOf(100), 0, java.math.RoundingMode.HALF_UP).longValueExact();
-        return new TaxCalculation(rate, tax);
+        return new TaxCalculation(rate, null, enteredAmount, tax, 0L, 0L,
+                Math.addExact(enteredAmount, tax), List.of(new TaxComponentSnapshot("Legacy tax", TaxComponentType.STANDARD,
+                new BigDecimal(Float.toString(percentage)), tax, null, null)));
     }
-    private record TaxCalculation(com.erplancers.erp.tax.domain.TaxRate rate, long amount) {}
 
+    private void attachTaxComponents(Invoice invoice, List<TaxComponentSnapshot> snapshots) {
+        for (TaxComponentSnapshot snapshot : snapshots) {
+            if (snapshot.amount() == 0) continue;
+            InvoiceTaxComponent component = new InvoiceTaxComponent();
+            component.setInvoice(invoice);
+            component.setName(snapshot.name());
+            component.setComponentType(snapshot.type());
+            component.setRate(snapshot.rate());
+            component.setAmount(snapshot.amount());
+            component.setOutputTaxAccount(snapshot.outputAccountId() == null ? null : required(Account.class, snapshot.outputAccountId()));
+            component.setInputTaxAccount(snapshot.inputAccountId() == null ? null : required(Account.class, snapshot.inputAccountId()));
+            invoice.getTaxComponents().add(component);
+        }
+    }
+
+    private record TaxComponentSnapshot(String name, TaxComponentType type, BigDecimal rate, long amount,
+                                        Long outputAccountId, Long inputAccountId) {}
+    private record TaxCalculation(TaxRate rate, TaxPolicy policy, long netAmount, long taxAmount,
+                                  long withholdingAmount, long reverseChargeTaxAmount, long grossAmount,
+                                  List<TaxComponentSnapshot> components) {}
     private String hash(String value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));

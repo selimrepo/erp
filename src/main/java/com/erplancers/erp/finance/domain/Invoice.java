@@ -19,11 +19,18 @@ public class Invoice extends EntityBase {
     private Long amount;
     @Column(nullable = false) private Long netAmount = 0L;
     @Column(nullable = false) private Long taxAmount = 0L;
+    @Column(nullable=false) private Long withholdingAmount = 0L;
+    @Column(nullable=false) private Long reverseChargeTaxAmount = 0L;
+    @OneToMany(mappedBy="invoice",cascade=CascadeType.ALL,orphanRemoval=true) @OrderBy("id ASC")
+    private Set<InvoiceTaxComponent> taxComponents = new java.util.LinkedHashSet<>();
     private Long paidAmount = 0L;
     @Column(nullable = false) private Long creditedAmount = 0L;
     @ManyToOne(fetch = FetchType.LAZY) private Invoice originalInvoice;
     @ManyToOne(fetch = FetchType.LAZY) private com.erplancers.erp.accounting.domain.JournalEntry ledgerJournalEntry;
     private String creditNoteReason;
+    @Enumerated(EnumType.STRING) @Column(length=32) private CreditNoteReasonCode creditNoteReasonCode;
+    @Column(length=120) private String taxEvidenceType;
+    @Column(length=240) private String taxEvidenceReference;
     @Column(name = "workflow_key", length = 180) private String workflowKey;
     @Enumerated(EnumType.STRING) private InvoiceStatus invoiceStatus;
     @Enumerated(EnumType.STRING) private InvoiceType invoiceType;

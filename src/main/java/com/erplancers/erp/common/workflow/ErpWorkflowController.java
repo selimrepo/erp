@@ -45,6 +45,7 @@ public class ErpWorkflowController {
     public Map<String,Object> createSalesOrder(Authentication auth,@Valid @RequestBody ErpWorkflowRequests.SalesOrder request) {
         require(auth,"order","WRITE"); require(auth,"product-stock-location","WRITE");
         if(request.createInvoice()) require(auth,"invoice","WRITE");
+        if(request.accountingPosting()!=null) requireLedgerPosting(auth);
         return workflows.createSalesOrder(request);
     }
     @PostMapping("/sales/orders/{id}/ship")
@@ -76,12 +77,14 @@ public class ErpWorkflowController {
     public Map<String,Object> receivePurchase(Authentication auth,@PathVariable Long id,@RequestParam Long storeId,
                                                @Valid @RequestBody ErpWorkflowRequests.ReceivePurchase request) {
         require(auth,"purchase","WRITE"); require(auth,"product-stock-location","WRITE"); require(auth,"stock-item","WRITE");
+        if(request.accountingPosting()!=null) requireLedgerPosting(auth);
         return workflows.receivePurchase(id,request,storeId);
     }
     @PostMapping("/procurement/purchases/{id}/receive-lines")
     public Map<String,Object> receivePurchasePartial(Authentication auth,@PathVariable Long id,@RequestParam Long storeId,
             @Valid @RequestBody ErpWorkflowRequests.PartialReceivePurchase request) {
         require(auth,"purchase","WRITE"); require(auth,"product-stock-location","WRITE"); require(auth,"stock-item","WRITE"); require(auth,"stock-movement","WRITE");
+        if(request.accountingPosting()!=null) requireLedgerPosting(auth);
         return workflows.receivePurchasePartial(id,request,storeId);
     }
     @PostMapping("/finance/invoices/{id}/payments")
@@ -128,6 +131,9 @@ public class ErpWorkflowController {
     public Map<String,Object> postJournal(Authentication auth,@Valid @RequestBody ErpWorkflowRequests.JournalPost request) {
         require(auth,"journal-entry","WRITE"); require(auth,"journal-entry-line","WRITE"); require(auth,"account","READ");
         return workflows.postJournal(request);
+    }
+    private void requireLedgerPosting(Authentication auth) {
+        require(auth,"journal-entry","WRITE"); require(auth,"journal-entry-line","WRITE"); require(auth,"account","READ");
     }
     private void require(Authentication auth,String resource,String action) {
         if(!authorization.isAllowed(auth,resource,action)) throw new AccessDeniedException(action+" access denied for "+resource);
