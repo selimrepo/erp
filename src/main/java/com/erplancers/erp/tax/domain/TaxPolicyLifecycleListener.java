@@ -23,8 +23,9 @@ public class TaxPolicyLifecycleListener {
         policy.setTransactionType(normalize(policy.getTransactionType()));
         policy.setTaxCategory(normalize(policy.getTaxCategory()));
         if (policy.getTreatment() == TaxTreatment.EXEMPT
-                && (policy.getExemptionCode() == null || policy.getExemptionCode().isBlank()))
-            throw new IllegalStateException("Exemption policies must define an exemption code");
+                && (policy.getExemptionCode() == null || policy.getExemptionCode().isBlank()
+                || policy.getRequiredEvidenceType() == null || policy.getRequiredEvidenceType().isBlank()))
+            throw new IllegalStateException("Exemption policies must define an exemption code and required evidence type");
         if (policy.getComponents() != null) {
             java.util.Set<Integer> sequences = new java.util.HashSet<>();
             for (TaxPolicyComponent component : policy.getComponents()) {
