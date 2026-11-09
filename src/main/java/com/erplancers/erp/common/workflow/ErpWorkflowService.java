@@ -863,8 +863,8 @@ public class ErpWorkflowService {
                     if (sale ? creditNote : !creditNote)
                         lines.add(new ErpWorkflowRequests.JournalLine(taxAccount.getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, component.getName() + " tax reversal"));
                     else
-                        lines.add(new ErpWorkflowRequests.JournalLine(taxAccount.getId(), sale ? BigDecimal.ZERO : BigDecimal.valueOf(amount),
-                                sale ? BigDecimal.valueOf(amount) : BigDecimal.ZERO, component.getName() + (sale ? " output tax" : " input tax")));
+                        lines.add(new ErpWorkflowRequests.JournalLine(taxAccount.getId(), BigDecimal.ZERO,
+                                BigDecimal.valueOf(amount), component.getName() + (sale ? " output tax" : " input tax")));
                 }
             } else if (type == TaxComponentType.WITHHOLDING) {
                 componentWithholding = Math.addExact(componentWithholding, amount);
@@ -901,8 +901,8 @@ public class ErpWorkflowService {
                 if (sale ? creditNote : !creditNote)
                     lines.add(new ErpWorkflowRequests.JournalLine(fallbackTax.getId(), BigDecimal.valueOf(taxAmount), BigDecimal.ZERO, "Output tax reversal"));
                 else
-                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackTax.getId(), sale ? BigDecimal.ZERO : BigDecimal.valueOf(taxAmount),
-                            sale ? BigDecimal.valueOf(taxAmount) : BigDecimal.ZERO, sale ? "Output tax" : "Input tax"));
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackTax.getId(), BigDecimal.ZERO,
+                            BigDecimal.valueOf(taxAmount), sale ? "Output tax" : "Input tax"));
             }
             if (withholdingAmount > 0) {
                 if (fallbackWithholding == null) throw new IllegalArgumentException("Withholding account is required");
