@@ -21,6 +21,8 @@ public class PurchaseDetail extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY) private TaxRate taxRate;
     @ManyToOne(fetch = FetchType.LAZY) private TaxPolicy taxPolicy;
     @Column(nullable = false) private Long taxAmount = 0L;
+    @Column(nullable=false) private Long withholdingAmount = 0L;
+    @Column(nullable=false) private Long reverseChargeTaxAmount = 0L;
     @Column(nullable = false) private Long lineTotal = 0L;
     @com.fasterxml.jackson.annotation.JsonIgnore
     @Transient private boolean receiptValidated;
