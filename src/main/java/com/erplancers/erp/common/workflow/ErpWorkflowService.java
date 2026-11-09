@@ -64,7 +64,8 @@ public class ErpWorkflowService {
         order.setIdempotencyKey(request.idempotencyKey()); order.setIdempotencyPayloadHash(requestHash); order.setTotalAmount(0L);
         order.setOrderCreationValidated(true);
         em.persist(order); em.flush();
-        long total = 0, totalTax = 0, totalNet = 0;
+        long total = 0, totalTax = 0, totalNet = 0, totalWithholding = 0, totalReverseCharge = 0;
+        List<TaxComponentSnapshot> invoiceTaxComponents = new ArrayList<>();
         for (int i=0;i<request.lines().size();i++) {
             ErpWorkflowRequests.SalesLine input = request.lines().get(i);
             Product product = required(Product.class, input.productId());
@@ -72,14 +73,17 @@ public class ErpWorkflowService {
             long available = stock.getQuantity() == null ? 0 : stock.getQuantity();
             if (available < input.quantity()) throw new IllegalStateException("Insufficient stock for product " + product.getId() + ": available " + available);
             long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
-            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, customer, "SALE", input.jurisdictionCode(), input.taxCategory(), customer.getContact());
+            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, customer, "SALE", input.jurisdictionCode(), input.taxCategory(), customer.getContact(), input.exemptionCode(), input.evidenceReference());
             long lineTotal = tax.grossAmount();
             total = Math.addExact(total, lineTotal);
             totalNet = Math.addExact(totalNet, tax.netAmount());
             totalTax = Math.addExact(totalTax, tax.taxAmount());
+            totalWithholding = Math.addExact(totalWithholding, tax.withholdingAmount());
+            totalReverseCharge = Math.addExact(totalReverseCharge, tax.reverseChargeTaxAmount());
+            invoiceTaxComponents.addAll(tax.components());
             stock.setStockAdjustmentValidated(true); stock.setQuantity(available - input.quantity());
             OrderLine line = new OrderLine(); line.setOrder(order); line.setProduct(product);
-            line.setQuantity(input.quantity()); line.setUnitPrice(input.unitPrice()); line.setTaxRate(tax.rate()); line.setTaxPolicy(tax.policy()); line.setTaxAmount(tax.taxAmount()); line.setLineTotal(lineTotal);
+            line.setQuantity(input.quantity()); line.setUnitPrice(input.unitPrice()); line.setTaxRate(tax.rate()); line.setTaxPolicy(tax.policy()); line.setTaxAmount(tax.taxAmount()); line.setWithholdingAmount(tax.withholdingAmount()); line.setReverseChargeTaxAmount(tax.reverseChargeTaxAmount()); line.setLineTotal(lineTotal);
             order.getLines().add(line);
             movement(product, store, input.quantity(), "SALE_RESERVATION", "ORDER", order.getId().toString(), request.idempotencyKey()+":sale:"+i);
         }
@@ -89,6 +93,8 @@ public class ErpWorkflowService {
             invoice.setInvoiceDescription("Sales order " + order.getId()); invoice.setAmount(total);
             invoice.setPaidAmount(0L); invoice.setCurrency(currency); invoice.setInvoiceType(InvoiceType.SALE);
             invoice.setNetAmount(totalNet); invoice.setTaxAmount(totalTax);
+            invoice.setWithholdingAmount(totalWithholding); invoice.setReverseChargeTaxAmount(totalReverseCharge);
+            attachTaxComponents(invoice, invoiceTaxComponents);
             invoice.setInvoiceStatus(InvoiceStatus.CONFIRMED); invoice.setWorkflowKey("sales:"+request.idempotencyKey());
             invoice.setBillingContacts(Set.of(contact)); invoice.setShippingContacts(Set.of(contact));
             invoice.setCreationValidated(true);
@@ -160,11 +166,11 @@ public class ErpWorkflowService {
         for (ErpWorkflowRequests.PurchaseLine input : request.lines()) {
             Product product = required(Product.class, input.productId());
             long netAmount = Math.multiplyExact(input.quantity(), input.unitPrice());
-            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, null, "PURCHASE", input.jurisdictionCode(), input.taxCategory(), supplier.getContact());
+            TaxCalculation tax = calculateTax(netAmount, input.taxRateId(), product, null, "PURCHASE", input.jurisdictionCode(), input.taxCategory(), supplier.getContact(), input.exemptionCode(), input.evidenceReference());
             long lineTotal = tax.grossAmount(); total=Math.addExact(total,lineTotal); totalTax=Math.addExact(totalTax,tax.taxAmount());
             PurchaseDetail detail = new PurchaseDetail(); detail.setPurchase(purchase); detail.setSupplier(supplier);
             detail.setProduct(product); detail.setQuantity(input.quantity()); detail.setPrice(input.unitPrice());
-            detail.setTaxRate(tax.rate()); detail.setTaxPolicy(tax.policy()); detail.setTaxAmount(tax.taxAmount()); detail.setLineTotal(lineTotal);
+            detail.setTaxRate(tax.rate()); detail.setTaxPolicy(tax.policy()); detail.setTaxAmount(tax.taxAmount()); detail.setWithholdingAmount(tax.withholdingAmount()); detail.setReverseChargeTaxAmount(tax.reverseChargeTaxAmount()); detail.setLineTotal(lineTotal);
             purchase.getPurchaseDetails().add(detail);
         }
         purchase.setTotalAmount(total); purchase.setTaxAmount(totalTax); em.flush();
