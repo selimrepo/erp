@@ -46,6 +46,23 @@ class JournalPostingIntegrationTest {
         assertThatCode(() -> entityManager.flush()).doesNotThrowAnyException();
     }
 
+    @Test
+    void rejectsPostingIntoClosedFiscalPeriod() {
+        JournalEntry journal = draftJournal();
+        journal.getFiscalPeriod().setClosed(true);
+        journal.getLines().add(line(journal, account("1002"), "100.00", "0"));
+        journal.getLines().add(line(journal, account("4002"), "0", "100.00"));
+        entityManager.persist(journal);
+        entityManager.flush();
+
+        journal.setPostingValidated(true);
+        journal.setStatus(JournalEntryStatus.POSTED);
+
+        assertThatThrownBy(() -> entityManager.flush())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("A journal cannot be posted into a closed fiscal year or period");
+    }
+
     private JournalEntry draftJournal() {
         LocalDate date = LocalDate.of(2026, 11, 9);
         FiscalYear year = new FiscalYear();
