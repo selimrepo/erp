@@ -36,8 +36,8 @@ public class TaxPolicyLifecycleListener {
                         || !sequences.add(component.getSequence()))
                     throw new IllegalStateException("Tax components require a name, valid type/rate and unique non-negative sequence");
                 if (component.getComponentType() == TaxComponentType.WITHHOLDING
-                        && component.getOutputTaxAccount() != null)
-                    throw new IllegalStateException("Withholding components must not use an output-tax account");
+                        && component.getOutputTaxAccount() == null)
+                    throw new IllegalStateException("Withholding components require a withholding account mapping");
                 if (component.getComponentType() == TaxComponentType.REVERSE_CHARGE
                         && (component.getOutputTaxAccount() == null || component.getInputTaxAccount() == null))
                     throw new IllegalStateException("Reverse-charge components require both input and output tax accounts");
