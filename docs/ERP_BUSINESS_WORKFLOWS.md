@@ -44,4 +44,9 @@ Partial receipts are supported through `POST /procurement/purchases/{id}/receive
 - Idempotency keys are backed by unique database constraints on the source records/movements.
 - Generic CRUD remains available for master data and setup. It must not be used to post stock, settle invoices or create ledger entries.
 - The current invoice model stores integer monetary amounts. Configure and display values using the application's existing minor-unit convention; currency precision, tax-inclusive pricing and jurisdiction-specific tax determination still need a formal tenant-level policy.
-- Inventory corrections use `POST /inventory/stock-adjustments`, which stores an immutable reasoned adjustment and compensating stock movement. Generic CRUD cannot directly change an existing stock balance.
+- Inventory corrections use `POST /inventory/stock-adjustments`, which stores an immutable reasoned adjustment and compensating stock movement. Warehouse transfers use `POST /inventory/stock-transfers`: source and destination warehouse rows are locked in stable ID order, both balances are updated in one transaction, and paired inbound/outbound movements share the command idempotency key. Generic CRUD cannot directly change an existing stock balance.
+
+
+## Completion boundary
+
+The workflow API provides transactional primitives, but production readiness still requires approved tenant accounting/tax policies, a verified migration strategy, complete return/refund treatment, and end-to-end tests against the supported database. The React console must expose the same line-level and reconciliation operations; an API capability is not operationally complete until the UI and authorization paths are covered.

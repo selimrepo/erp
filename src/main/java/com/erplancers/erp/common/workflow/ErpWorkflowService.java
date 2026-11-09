@@ -202,6 +202,82 @@ public class ErpWorkflowService {
     }
 
     @Transactional
+    public Map<String,Object> transferStock(ErpWorkflowRequests.StockTransferRequest request) {
+        if (Objects.equals(request.sourceStoreId(), request.destinationStoreId()))
+            throw new IllegalArgumentException("Source and destination warehouses must be different");
+        String requestHash = hash(request.toString());
+        Map<String,Object> replay = findStockTransferReplay(request, requestHash);
+        if (replay != null) return replay;
+
+        Product product = required(Product.class, request.productId());
+        Long firstStoreId = Math.min(request.sourceStoreId(), request.destinationStoreId());
+        Long secondStoreId = Math.max(request.sourceStoreId(), request.destinationStoreId());
+        Store firstStore = em.find(Store.class, firstStoreId, LockModeType.PESSIMISTIC_WRITE);
+        Store secondStore = em.find(Store.class, secondStoreId, LockModeType.PESSIMISTIC_WRITE);
+        if (firstStore == null || secondStore == null) throw new IllegalArgumentException("Source or destination warehouse was not found");
+
+        // Recheck after warehouse locks: concurrent retries serialize here and become safe replays.
+        replay = findStockTransferReplay(request, requestHash);
+        if (replay != null) return replay;
+
+        // Lock stock rows in the same deterministic order as warehouses to avoid opposite-transfer deadlocks.
+        ProductStockLocation firstStock = stockForUpdateOrCreate(product, firstStore);
+        ProductStockLocation secondStock = stockForUpdateOrCreate(product, secondStore);
+        ProductStockLocation sourceStock = Objects.equals(firstStoreId, request.sourceStoreId()) ? firstStock : secondStock;
+        ProductStockLocation destinationStock = Objects.equals(firstStoreId, request.destinationStoreId()) ? firstStock : secondStock;
+        Store source = Objects.equals(firstStoreId, request.sourceStoreId()) ? firstStore : secondStore;
+        Store destination = Objects.equals(firstStoreId, request.destinationStoreId()) ? firstStore : secondStore;
+        long sourceQuantity = sourceStock.getQuantity() == null ? 0L : sourceStock.getQuantity();
+        long destinationQuantity = destinationStock.getQuantity() == null ? 0L : destinationStock.getQuantity();
+        if (sourceQuantity < request.quantity())
+            throw new IllegalStateException("Insufficient source stock: available " + sourceQuantity + ", requested " + request.quantity());
+        long nextDestination = Math.addExact(destinationQuantity, request.quantity());
+        sourceStock.setStockAdjustmentValidated(true);
+        destinationStock.setStockAdjustmentValidated(true);
+        sourceStock.setQuantity(Math.subtractExact(sourceQuantity, request.quantity()));
+        destinationStock.setQuantity(nextDestination);
+        String reference = requestHash; // 64 characters, safe for the stock movement reference column.
+        movement(product, source, request.quantity(), "STOCK_TRANSFER_OUT", "STOCK_TRANSFER",
+                reference, request.idempotencyKey() + ":out");
+        movement(product, destination, request.quantity(), "STOCK_TRANSFER_IN", "STOCK_TRANSFER",
+                reference, request.idempotencyKey() + ":in");
+        em.flush();
+        return result("product", product.getId(), "sourceStore", source.getId(),
+                "destinationStore", destination.getId(), "quantity", request.quantity(),
+                "sourceBalance", sourceStock.getQuantity(), "destinationBalance", destinationStock.getQuantity(),
+                "idempotentReplay", false);
+    }
+
+    private Map<String,Object> findStockTransferReplay(ErpWorkflowRequests.StockTransferRequest request, String requestHash) {
+        String outboundKey = request.idempotencyKey() + ":out";
+        String inboundKey = request.idempotencyKey() + ":in";
+        List<StockMovement> priorOut = em.createQuery(
+                "select m from StockMovement m where m.idempotencyKey=:key", StockMovement.class)
+                .setParameter("key", outboundKey).setMaxResults(1).getResultList();
+        List<StockMovement> priorIn = em.createQuery(
+                "select m from StockMovement m where m.idempotencyKey=:key", StockMovement.class)
+                .setParameter("key", inboundKey).setMaxResults(1).getResultList();
+        if (priorOut.isEmpty() && priorIn.isEmpty()) return null;
+        if (priorOut.size() != 1 || priorIn.size() != 1)
+            throw new IllegalStateException("Stock transfer ledger is incomplete for idempotency key " + request.idempotencyKey());
+        StockMovement out = priorOut.get(0), in = priorIn.get(0);
+        boolean matches = Objects.equals(out.getProduct().getId(), request.productId())
+                && Objects.equals(in.getProduct().getId(), request.productId())
+                && Objects.equals(out.getStore().getId(), request.sourceStoreId())
+                && Objects.equals(in.getStore().getId(), request.destinationStoreId())
+                && Objects.equals(out.getQuantity(), request.quantity())
+                && Objects.equals(in.getQuantity(), request.quantity())
+                && "STOCK_TRANSFER_OUT".equals(out.getMovementType())
+                && "STOCK_TRANSFER_IN".equals(in.getMovementType())
+                && Objects.equals(out.getReferenceId(), requestHash)
+                && Objects.equals(in.getReferenceId(), requestHash);
+        if (!matches) throw new IllegalArgumentException("Stock transfer idempotency key was reused with a different payload");
+        return result("product", request.productId(), "sourceStore", request.sourceStoreId(),
+                "destinationStore", request.destinationStoreId(), "quantity", request.quantity(),
+                "idempotentReplay", true);
+    }
+
+    @Transactional
     public Map<String,Object> receivePurchase(Long purchaseId, ErpWorkflowRequests.ReceivePurchase request, Long storeId) {
         return receivePurchaseLines(purchaseId, request.idempotencyKey(), null, storeId);
     }

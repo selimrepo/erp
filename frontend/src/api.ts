@@ -23,8 +23,16 @@ export async function apiFetch<T>(path:string, credentials:Credentials, init:Req
 }
 export const api={
  createSalesOrder:(body:object,c:Credentials)=>apiFetch<any>("/workflows/sales/orders",c,{method:"POST",body:JSON.stringify(body)}),
+ convertQuoteToOrder:(id:number,body:object,c:Credentials)=>apiFetch<any>(`/workflows/sales/quotes/${id}/convert`,c,{method:"POST",body:JSON.stringify(body)}),
+ receivePurchaseLines:(id:number,storeId:number,body:object,c:Credentials)=>apiFetch<any>(`/workflows/procurement/purchases/${id}/receive-lines?storeId=${storeId}`,c,{method:"POST",body:JSON.stringify(body)}),
+ createCreditNote:(id:number,body:object,c:Credentials)=>apiFetch<any>(`/workflows/finance/invoices/${id}/credit-notes`,c,{method:"POST",body:JSON.stringify(body)}),
+ importBankStatement:(body:object,c:Credentials)=>apiFetch<any>("/workflows/finance/bank-statements",c,{method:"POST",body:JSON.stringify(body)}),
+ reconcileBankStatementLine:(lineId:number,paymentId:number,c:Credentials)=>apiFetch<any>(`/workflows/finance/bank-statement-lines/${lineId}/reconcile/${paymentId}`,c,{method:"POST"}),
+ postInvoiceAutomatically:(id:number,body:object,c:Credentials)=>apiFetch<any>(`/workflows/finance/invoices/${id}/post-auto`,c,{method:"POST",body:JSON.stringify(body)}),
+ postPaymentAutomatically:(id:number,body:object,c:Credentials)=>apiFetch<any>(`/workflows/finance/payments/${id}/post-auto`,c,{method:"POST",body:JSON.stringify(body)}),
  createPurchaseOrder:(body:object,c:Credentials)=>apiFetch<any>("/workflows/procurement/purchases",c,{method:"POST",body:JSON.stringify(body)}),
  adjustStock:(body:object,c:Credentials)=>apiFetch<any>("/workflows/inventory/stock-adjustments",c,{method:"POST",body:JSON.stringify(body)}),
+ transferStock:(body:object,c:Credentials)=>apiFetch<any>("/workflows/inventory/stock-transfers",c,{method:"POST",body:JSON.stringify(body)}),
  shipSalesOrder:(id:number,idempotencyKey:string,c:Credentials)=>apiFetch<any>(`/workflows/sales/orders/${id}/ship`,c,{method:"POST",body:JSON.stringify({idempotencyKey})}),
  cancelSalesOrder:(id:number,idempotencyKey:string,c:Credentials)=>apiFetch<any>(`/workflows/sales/orders/${id}/cancel`,c,{method:"POST",body:JSON.stringify({idempotencyKey})}),
  receivePurchase:(id:number,storeId:number,idempotencyKey:string,c:Credentials)=>apiFetch<any>(`/workflows/procurement/purchases/${id}/receive?storeId=${storeId}`,c,{method:"POST",body:JSON.stringify({idempotencyKey})}),
