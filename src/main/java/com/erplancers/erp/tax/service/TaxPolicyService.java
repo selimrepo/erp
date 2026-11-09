@@ -139,7 +139,7 @@ public class TaxPolicyService {
     public TaxCalculation calculate(Contact company, String jurisdictionCode, String transactionType,
                                     String taxCategory, LocalDate date, long enteredAmount) {
         DetailedTaxCalculation result = calculateDetailed(company, jurisdictionCode, transactionType, taxCategory,
-                date, enteredAmount, null, null);
+                date, enteredAmount, null, null, null);
         return new TaxCalculation(result.policyId(), result.netAmount(), result.taxAmount(), result.grossAmount(),
                 result.ratePercent(), result.taxInclusive());
     }
@@ -155,7 +155,7 @@ public class TaxPolicyService {
 
     @Transactional(readOnly = true)
     public DetailedTaxCalculation calculateDetailed(Contact company, String jurisdictionCode, String transactionType,
-            String taxCategory, LocalDate date, long enteredAmount, String exemptionCode, String evidenceReference) {
+            String taxCategory, LocalDate date, long enteredAmount, String exemptionCode, String evidenceType, String evidenceReference) {
         if (date == null) throw new IllegalArgumentException("Tax calculation date is required");
         if (enteredAmount < 0) throw new IllegalArgumentException("Taxable amount cannot be negative");
         String jurisdiction = normalize(jurisdictionCode), transaction = normalize(transactionType), category = normalize(taxCategory);
@@ -173,6 +173,9 @@ public class TaxPolicyService {
             if (selected.getExemptionCode() == null || !selected.getExemptionCode().equalsIgnoreCase(
                     exemptionCode == null ? "" : exemptionCode.trim()))
                 throw new IllegalArgumentException("A valid exemption code is required by the selected tax policy");
+            if (selected.getRequiredEvidenceType() != null
+                    && !selected.getRequiredEvidenceType().equalsIgnoreCase(evidenceType == null ? "" : evidenceType.trim()))
+                throw new IllegalArgumentException("Exemption evidence type must be " + selected.getRequiredEvidenceType());
             if (selected.getRequiredEvidenceType() != null
                     && (evidenceReference == null || evidenceReference.isBlank()))
                 throw new IllegalArgumentException("Exemption evidence reference is required: " + selected.getRequiredEvidenceType());
@@ -203,7 +206,7 @@ public class TaxPolicyService {
             TaxComponentType type = component.getComponentType();
             BigDecimal rate = component.getRate();
             long componentAmount = 0;
-            if (selected.getTreatment() != TaxTreatment.EXEMPT) {
+            if (selected.getTreatment() != TaxTreatment.EXEMPT || type == TaxComponentType.WITHHOLDING) {
                 long base = type == TaxComponentType.COMPOUND ? compoundBase : net;
                 componentAmount = BigDecimal.valueOf(base).multiply(rate).divide(HUNDRED, 0, RoundingMode.HALF_UP).longValueExact();
                 if (type == TaxComponentType.STANDARD || type == TaxComponentType.COMPOUND) {
