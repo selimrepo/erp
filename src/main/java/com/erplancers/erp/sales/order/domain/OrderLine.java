@@ -29,4 +29,9 @@ public class OrderLine extends EntityBase {
     @Column(nullable = false) private Long taxAmount = 0L;
     @Column(nullable=false) private Long withholdingAmount = 0L;
     @Column(nullable=false) private Long reverseChargeTaxAmount = 0L;
+    @Column(length=80) private String taxExemptionCode;
+    @Column(length=120) private String taxEvidenceType;
+    @Column(length=240) private String taxEvidenceReference;
+    @OneToMany(mappedBy="orderLine",cascade=CascadeType.ALL,orphanRemoval=true) @OrderBy("id ASC")
+    private java.util.List<OrderLineTaxComponent> taxComponents = new java.util.ArrayList<>();
 }
