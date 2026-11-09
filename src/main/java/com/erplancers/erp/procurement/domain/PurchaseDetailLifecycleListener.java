@@ -23,10 +23,12 @@ public class PurchaseDetailLifecycleListener {
         if (line.getPersistedReceivedQuantity() != null && !Objects.equals(line.getPersistedReceivedQuantity(), line.getReceivedQuantity())
                 && !line.isReceiptValidated())
             throw new IllegalStateException("Received quantity can only be changed by the goods-receipt workflow");
-        long net = Math.multiplyExact(line.getQuantity(), line.getPrice());
+        long entered = Math.multiplyExact(line.getQuantity(), line.getPrice());
         long tax = line.getTaxAmount() == null ? 0L : line.getTaxAmount();
-        if (tax < 0 || Math.addExact(net, tax) != line.getLineTotal())
-            throw new IllegalStateException("Purchase line total must equal net plus tax");
+        boolean inclusive = line.getTaxPolicy() != null && line.getTaxPolicy().isTaxInclusive();
+        long expected = inclusive ? entered : Math.addExact(entered, tax);
+        if (tax < 0 || (inclusive && tax > entered) || expected != line.getLineTotal())
+            throw new IllegalStateException("Purchase line total is inconsistent with its tax-inclusive/exclusive policy");
     }
 
     @PostUpdate
