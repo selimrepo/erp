@@ -90,6 +90,15 @@ public class TaxPolicyService {
                              boolean taxInclusive, boolean active) {}
 
     @Transactional(readOnly = true)
+    public TaxCalculation calculate(Long companyId, String jurisdictionCode, String transactionType,
+                                    String taxCategory, LocalDate date, long enteredAmount) {
+        Contact company = companyId == null ? null : entityManager.find(Contact.class, companyId);
+        if (companyId != null && company == null)
+            throw new IllegalArgumentException("Tax policy company contact not found: " + companyId);
+        return calculate(company, jurisdictionCode, transactionType, taxCategory, date, enteredAmount);
+    }
+
+    @Transactional(readOnly = true)
     public TaxCalculation calculate(Contact company, String jurisdictionCode, String transactionType,
                                     String taxCategory, LocalDate date, long enteredAmount) {
         if (date == null) throw new IllegalArgumentException("Tax calculation date is required");
