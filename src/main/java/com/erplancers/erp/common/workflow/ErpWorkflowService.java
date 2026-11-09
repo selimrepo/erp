@@ -41,6 +41,8 @@ public class ErpWorkflowService {
 
     @Transactional
     public Map<String,Object> createSalesOrder(ErpWorkflowRequests.SalesOrder request) {
+        if (request.accountingPosting() != null && !request.createInvoice())
+            throw new IllegalArgumentException("Atomic ledger posting requires createInvoice=true");
         List<Order> existing = em.createQuery("select o from Order o where o.idempotencyKey=:key", Order.class)
                 .setParameter("key", request.idempotencyKey()).setMaxResults(1).getResultList();
         String requestHash = hash(request.toString());
