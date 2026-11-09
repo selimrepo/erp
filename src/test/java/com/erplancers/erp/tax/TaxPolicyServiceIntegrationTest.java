@@ -1,10 +1,12 @@
 package com.erplancers.erp.tax;
 
+import com.erplancers.erp.crm.contact.domain.Contact;
 import com.erplancers.erp.tax.domain.TaxPolicy;
 import com.erplancers.erp.tax.repository.TaxPolicyRepository;
 import com.erplancers.erp.tax.service.TaxPolicyService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import jakarta.persistence.EntityManager;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
 
@@ -19,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TaxPolicyServiceIntegrationTest {
     @Autowired TaxPolicyRepository policies;
     @Autowired TaxPolicyService service;
+    @Autowired EntityManager entityManager;
 
     @Test
     void resolvesSpecificPolicyAndCalculatesExclusiveTaxInMinorUnits() {
@@ -47,6 +50,32 @@ class TaxPolicyServiceIntegrationTest {
         assertThat(result.netAmount()).isEqualTo(10_000L);
         assertThat(result.taxAmount()).isEqualTo(1_900L);
         assertThat(result.grossAmount()).isEqualTo(11_900L);
+    }
+
+    @Test
+    void companyPolicyOverridesGlobalPolicyWithoutLeakingAcrossTenants() {
+        Contact tenantA = new Contact();
+        tenantA.setName("Tenant A");
+        entityManager.persist(tenantA);
+        Contact tenantB = new Contact();
+        tenantB.setName("Tenant B");
+        entityManager.persist(tenantB);
+
+        TaxPolicy global = policy("Global default", "TR", "SALE", "STANDARD", "18", 1, false);
+        TaxPolicy tenantPolicy = policy("Tenant A override", "TR", "SALE", "STANDARD", "20", 100, false);
+        tenantPolicy.setCompany(tenantA);
+        policies.save(global);
+        policies.saveAndFlush(tenantPolicy);
+
+        var tenantAResult = service.calculate(tenantA, "TR", "SALE", "STANDARD",
+                LocalDate.of(2026, 11, 9), 10_000L);
+        var tenantBResult = service.calculate(tenantB, "TR", "SALE", "STANDARD",
+                LocalDate.of(2026, 11, 9), 10_000L);
+
+        assertThat(tenantAResult.ratePercent()).isEqualByComparingTo("20");
+        assertThat(tenantBResult.ratePercent()).isEqualByComparingTo("18");
+        assertThat(tenantAResult.policyId()).isEqualTo(tenantPolicy.getId());
+        assertThat(tenantBResult.policyId()).isEqualTo(global.getId());
     }
 
     @Test
