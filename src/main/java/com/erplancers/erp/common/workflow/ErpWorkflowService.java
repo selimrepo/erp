@@ -670,25 +670,35 @@ public class ErpWorkflowService {
 
     @Transactional
     public Map<String,Object> createCreditNote(Long invoiceId, ErpWorkflowRequests.CreditNote request) {
+        CreditNoteReasonCode reasonCode;
+        try { reasonCode = request.reasonCode() == null || request.reasonCode().isBlank()
+                ? CreditNoteReasonCode.OTHER : CreditNoteReasonCode.valueOf(request.reasonCode().trim().toUpperCase(Locale.ROOT)); }
+        catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("Unsupported credit-note reason code", invalid); }
+        if (reasonCode == CreditNoteReasonCode.TAX_CORRECTION
+                && (request.evidenceReference() == null || request.evidenceReference().isBlank()))
+            throw new IllegalArgumentException("Tax correction credit notes require a supporting evidence reference");
+
         List<Invoice> prior = em.createQuery("select i from Invoice i where i.workflowKey=:key", Invoice.class)
                 .setParameter("key", "credit-note:" + request.idempotencyKey()).setMaxResults(1).getResultList();
         if (!prior.isEmpty()) {
             Invoice note = prior.get(0);
             if (note.getOriginalInvoice()==null || !Objects.equals(note.getOriginalInvoice().getId(), invoiceId)
-                    || !Objects.equals(note.getAmount(), request.amount()) || !Objects.equals(note.getCreditNoteReason(), request.reason()))
+                    || !Objects.equals(note.getAmount(), request.amount()) || !Objects.equals(note.getCreditNoteReason(), request.reason())
+                    || note.getCreditNoteReasonCode() != reasonCode
+                    || !Objects.equals(note.getTaxEvidenceReference(), request.evidenceReference()))
                 throw new IllegalArgumentException("Credit note idempotency key was reused with a different payload");
             return result("creditNote", note.getId(), "originalInvoice", invoiceId, "idempotentReplay", true);
         }
         Invoice original = em.find(Invoice.class, invoiceId, LockModeType.PESSIMISTIC_WRITE);
         if (original == null) throw new IllegalArgumentException("Invoice not found: " + invoiceId);
-        // The invoice lock serializes credit-note retries for the same source document.
         List<Invoice> concurrentReplay = em.createQuery("select i from Invoice i where i.workflowKey=:key", Invoice.class)
                 .setParameter("key", "credit-note:" + request.idempotencyKey()).setMaxResults(1).getResultList();
         if (!concurrentReplay.isEmpty()) {
             Invoice note = concurrentReplay.get(0);
             if (note.getOriginalInvoice() == null || !Objects.equals(note.getOriginalInvoice().getId(), invoiceId)
-                    || !Objects.equals(note.getAmount(), request.amount())
-                    || !Objects.equals(note.getCreditNoteReason(), request.reason()))
+                    || !Objects.equals(note.getAmount(), request.amount()) || !Objects.equals(note.getCreditNoteReason(), request.reason())
+                    || note.getCreditNoteReasonCode() != reasonCode
+                    || !Objects.equals(note.getTaxEvidenceReference(), request.evidenceReference()))
                 throw new IllegalArgumentException("Credit note idempotency key was reused with a different payload");
             return result("creditNote", note.getId(), "originalInvoice", invoiceId, "idempotentReplay", true);
         }
@@ -700,18 +710,50 @@ public class ErpWorkflowService {
         long credited = original.getCreditedAmount() == null ? 0L : original.getCreditedAmount();
         long outstanding = amount - paid - credited;
         if (request.amount() > outstanding) throw new IllegalArgumentException("Credit note exceeds outstanding invoice balance " + outstanding);
+        if (request.accountingPosting() != null && original.getLedgerJournalEntry() == null)
+            throw new IllegalStateException("A credit note can only be posted when its original invoice has been posted to the ledger");
+
         Invoice note = new Invoice();
         note.setInvoiceName("CN-" + original.getId() + "-" + UUID.randomUUID().toString().substring(0, 8));
         note.setInvoiceDescription("Credit note for invoice " + original.getInvoiceName());
         note.setAmount(request.amount()); note.setPaidAmount(0L); note.setCreditedAmount(0L);
-        long originalNet = original.getNetAmount()==null?amount:original.getNetAmount();
-        long originalTax = original.getTaxAmount()==null?0L:original.getTaxAmount();
-        long noteTax = amount == 0 ? 0L : BigDecimal.valueOf(request.amount()).multiply(BigDecimal.valueOf(originalTax))
-                .divide(BigDecimal.valueOf(amount), 0, java.math.RoundingMode.HALF_UP).longValueExact();
-        note.setTaxAmount(noteTax); note.setNetAmount(request.amount()-noteTax);
+        long noteTax = 0L, noteWithholding = 0L, noteReverseCharge = 0L;
+        if (original.getTaxComponents() != null && !original.getTaxComponents().isEmpty()) {
+            for (InvoiceTaxComponent source : original.getTaxComponents()) {
+                long scaled = amount == 0 ? 0L : BigDecimal.valueOf(source.getAmount())
+                        .multiply(BigDecimal.valueOf(request.amount()))
+                        .divide(BigDecimal.valueOf(amount), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+                InvoiceTaxComponent component = new InvoiceTaxComponent();
+                component.setInvoice(note); component.setName(source.getName()); component.setComponentType(source.getComponentType());
+                component.setRate(source.getRate()); component.setAmount(scaled);
+                component.setOutputTaxAccount(source.getOutputTaxAccount()); component.setInputTaxAccount(source.getInputTaxAccount());
+                note.getTaxComponents().add(component);
+                if (source.getComponentType() == TaxComponentType.STANDARD || source.getComponentType() == TaxComponentType.COMPOUND)
+                    noteTax = Math.addExact(noteTax, scaled);
+                else if (source.getComponentType() == TaxComponentType.WITHHOLDING)
+                    noteWithholding = Math.addExact(noteWithholding, scaled);
+                else if (source.getComponentType() == TaxComponentType.REVERSE_CHARGE)
+                    noteReverseCharge = Math.addExact(noteReverseCharge, scaled);
+            }
+        } else {
+            long originalTax = original.getTaxAmount() == null ? 0L : original.getTaxAmount();
+            long originalWithholding = original.getWithholdingAmount() == null ? 0L : original.getWithholdingAmount();
+            long originalReverse = original.getReverseChargeTaxAmount() == null ? 0L : original.getReverseChargeTaxAmount();
+            noteTax = amount == 0 ? 0L : BigDecimal.valueOf(request.amount()).multiply(BigDecimal.valueOf(originalTax))
+                    .divide(BigDecimal.valueOf(amount), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+            noteWithholding = amount == 0 ? 0L : BigDecimal.valueOf(request.amount()).multiply(BigDecimal.valueOf(originalWithholding))
+                    .divide(BigDecimal.valueOf(amount), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+            noteReverseCharge = amount == 0 ? 0L : BigDecimal.valueOf(request.amount()).multiply(BigDecimal.valueOf(originalReverse))
+                    .divide(BigDecimal.valueOf(amount), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+        }
+        note.setTaxAmount(noteTax); note.setWithholdingAmount(noteWithholding);
+        note.setReverseChargeTaxAmount(noteReverseCharge);
+        note.setNetAmount(Math.addExact(request.amount(), noteWithholding) - noteTax);
         note.setCurrency(original.getCurrency()); note.setInvoiceType(InvoiceType.CREDIT_NOTE);
         note.setInvoiceStatus(InvoiceStatus.CONFIRMED); note.setOriginalInvoice(original);
-        note.setCreditNoteReason(request.reason()); note.setWorkflowKey("credit-note:" + request.idempotencyKey());
+        note.setCreditNoteReason(request.reason()); note.setCreditNoteReasonCode(reasonCode);
+        note.setTaxEvidenceReference(request.evidenceReference());
+        note.setWorkflowKey("credit-note:" + request.idempotencyKey());
         note.setCreationValidated(true);
         note.setBillingContacts(original.getBillingContacts()); note.setShippingContacts(original.getShippingContacts());
         em.persist(note);
@@ -722,9 +764,13 @@ public class ErpWorkflowService {
                 ? (paid > 0 ? InvoiceStatus.SETTLED : InvoiceStatus.CREDITED)
                 : (paid > 0 ? InvoiceStatus.PARTIALLY_SETTLED : InvoiceStatus.PARTIALLY_CREDITED));
         em.flush();
+        if (request.accountingPosting() != null)
+            postInvoiceToLedger(note.getId(), request.accountingPosting());
         return result("creditNote", note.getId(), "originalInvoice", invoiceId,
                 "creditedAmount", original.getCreditedAmount(), "outstandingAmount", amount-totalSettled,
-                "status", original.getInvoiceStatus().name(), "idempotentReplay", false);
+                "taxAmount", noteTax, "withholdingAmount", noteWithholding,
+                "reverseChargeTaxAmount", noteReverseCharge, "status", original.getInvoiceStatus().name(),
+                "idempotentReplay", false);
     }
 
     @Transactional
