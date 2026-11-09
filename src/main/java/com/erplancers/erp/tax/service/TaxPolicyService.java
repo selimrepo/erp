@@ -54,11 +54,11 @@ public class TaxPolicyService {
         BigDecimal gross;
         if (selected.isTaxInclusive()) {
             gross = entered;
-            net = entered.divide(BigDecimal.ONE.add(rate), currencyScale, RoundingMode.HALF_UP);
+            net = entered.divide(BigDecimal.ONE.add(rate), 0, RoundingMode.HALF_UP);
             tax = gross.subtract(net);
         } else {
             net = entered;
-            tax = entered.multiply(rate).setScale(currencyScale, RoundingMode.HALF_UP);
+            tax = entered.multiply(rate).setScale(0, RoundingMode.HALF_UP);
             gross = net.add(tax);
         }
         return new TaxCalculation(selected.getId(), net.longValueExact(), tax.longValueExact(),
