@@ -988,23 +988,22 @@ public class ErpWorkflowService {
      * without a legacy ID must resolve a date-effective generic policy; no silent zero-tax
      * fallback is allowed when a policy is missing.
      */
-    /**
-     * Generic, date-effective tax policies take precedence for all new documents.
-     * An explicitly supplied legacy TaxRate is used only as a migration fallback
-     * when no generic policy matches, so old integrations continue to work without
-     * silently overriding a tenant's new policy configuration.
-     */
     private TaxCalculation calculateTax(long enteredAmount, Long legacyTaxRateId, Product product, Customer customer,
                                         String transactionType, String jurisdictionCode, String requestedCategory,
-                                        Contact taxSubject) {
+                                        Contact taxSubject, String exemptionCode, String evidenceReference) {
         String category = requestedCategory;
         if ((category == null || category.isBlank()) && product.getTaxClass() != null)
             category = product.getTaxClass().getTitle();
         try {
-            TaxPolicyService.TaxCalculation result = taxPolicies.calculate(taxSubject, jurisdictionCode,
-                    transactionType, category, LocalDate.now(), enteredAmount);
+            TaxPolicyService.DetailedTaxCalculation result = taxPolicies.calculateDetailed(taxSubject,
+                    jurisdictionCode, transactionType, category, LocalDate.now(), enteredAmount,
+                    exemptionCode, evidenceReference);
             TaxPolicy policy = required(TaxPolicy.class, result.policyId());
-            return new TaxCalculation(null, policy, result.netAmount(), result.taxAmount(), result.grossAmount());
+            List<TaxComponentSnapshot> components = result.components().stream()
+                    .map(c -> new TaxComponentSnapshot(c.name(), c.componentType(), c.rate(), c.amount(),
+                            c.outputTaxAccountId(), c.inputTaxAccountId())).toList();
+            return new TaxCalculation(null, policy, result.netAmount(), result.taxAmount(),
+                    result.withholdingAmount(), result.reverseChargeTaxAmount(), result.grossAmount(), components);
         } catch (IllegalStateException noMatchingPolicy) {
             if (legacyTaxRateId == null
                     || !Objects.equals(noMatchingPolicy.getMessage(), "No active tax policy matches the transaction"))
@@ -1026,12 +1025,31 @@ public class ErpWorkflowService {
             throw new IllegalStateException("Tax rate must be between 0 and 100 percent");
         long tax = BigDecimal.valueOf(enteredAmount).multiply(new BigDecimal(Float.toString(percentage)))
                 .divide(BigDecimal.valueOf(100), 0, java.math.RoundingMode.HALF_UP).longValueExact();
-        return new TaxCalculation(rate, null, enteredAmount, tax, Math.addExact(enteredAmount, tax));
+        return new TaxCalculation(rate, null, enteredAmount, tax, 0L, 0L,
+                Math.addExact(enteredAmount, tax), List.of(new TaxComponentSnapshot("Legacy tax", TaxComponentType.STANDARD,
+                new BigDecimal(Float.toString(percentage)), tax, null, null)));
     }
 
-    private record TaxCalculation(TaxRate rate, TaxPolicy policy, long netAmount,
-                                  long taxAmount, long grossAmount) {}
+    private void attachTaxComponents(Invoice invoice, List<TaxComponentSnapshot> snapshots) {
+        for (TaxComponentSnapshot snapshot : snapshots) {
+            if (snapshot.amount() == 0) continue;
+            InvoiceTaxComponent component = new InvoiceTaxComponent();
+            component.setInvoice(invoice);
+            component.setName(snapshot.name());
+            component.setComponentType(snapshot.type());
+            component.setRate(snapshot.rate());
+            component.setAmount(snapshot.amount());
+            component.setOutputTaxAccount(snapshot.outputAccountId() == null ? null : required(Account.class, snapshot.outputAccountId()));
+            component.setInputTaxAccount(snapshot.inputAccountId() == null ? null : required(Account.class, snapshot.inputAccountId()));
+            invoice.getTaxComponents().add(component);
+        }
+    }
 
+    private record TaxComponentSnapshot(String name, TaxComponentType type, BigDecimal rate, long amount,
+                                        Long outputAccountId, Long inputAccountId) {}
+    private record TaxCalculation(TaxRate rate, TaxPolicy policy, long netAmount, long taxAmount,
+                                  long withholdingAmount, long reverseChargeTaxAmount, long grossAmount,
+                                  List<TaxComponentSnapshot> components) {}
     private String hash(String value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
