@@ -29,7 +29,7 @@ public class TaxPolicy extends EntityBase {
     @ManyToOne(fetch = FetchType.LAZY)
     private Contact company;
 
-    @Column(length = 3)
+    @Column(length = 32)
     private String jurisdictionCode;
 
     @Column(length = 40)
