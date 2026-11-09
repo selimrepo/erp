@@ -832,7 +832,8 @@ public class ErpWorkflowService {
             TaxComponentType type = component.getComponentType();
             if (type == TaxComponentType.STANDARD || type == TaxComponentType.COMPOUND) {
                 componentOutputTax = Math.addExact(componentOutputTax, amount);
-                Account taxAccount = component.getOutputTaxAccount() != null ? component.getOutputTaxAccount() : fallbackTax;
+                Account taxAccount = (sale ? component.getOutputTaxAccount() : component.getInputTaxAccount()) != null
+                        ? (sale ? component.getOutputTaxAccount() : component.getInputTaxAccount()) : fallbackTax;
                 if (amount > 0 && taxAccount == null)
                     throw new IllegalArgumentException("Output/input tax account is required for tax component " + component.getName());
                 if (amount > 0) {
@@ -860,8 +861,13 @@ public class ErpWorkflowService {
                 if (amount > 0 && (inputAccount == null || outputAccount == null))
                     throw new IllegalArgumentException("Reverse-charge input and output tax accounts are required");
                 if (amount > 0) {
-                    lines.add(new ErpWorkflowRequests.JournalLine(inputAccount.getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, "Reverse-charge input tax"));
-                    lines.add(new ErpWorkflowRequests.JournalLine(outputAccount.getId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), "Reverse-charge output tax"));
+                    if (!creditNote) {
+                        lines.add(new ErpWorkflowRequests.JournalLine(inputAccount.getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, "Reverse-charge input tax"));
+                        lines.add(new ErpWorkflowRequests.JournalLine(outputAccount.getId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), "Reverse-charge output tax"));
+                    } else {
+                        lines.add(new ErpWorkflowRequests.JournalLine(outputAccount.getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, "Reverse-charge output tax reversal"));
+                        lines.add(new ErpWorkflowRequests.JournalLine(inputAccount.getId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), "Reverse-charge input tax reversal"));
+                    }
                 }
             }
         }
