@@ -4,6 +4,8 @@ import com.erplancers.erp.crm.contact.domain.Contact;
 import com.erplancers.erp.crm.customer.domain.Customer;
 import com.erplancers.erp.finance.domain.Currency;
 import com.erplancers.erp.finance.domain.Invoice;
+import com.erplancers.erp.procurement.domain.Supplier;
+import com.erplancers.erp.procurement.domain.Purchase;
 import com.erplancers.erp.inventory.product.domain.Product;
 import com.erplancers.erp.inventory.stock.domain.ProductStockLocation;
 import com.erplancers.erp.inventory.stock.domain.StockMovement;
@@ -94,11 +96,49 @@ class SalesTaxDocumentWorkflowIntegrationTest {
         });
     }
 
+    @Test
+    void rollsBackPurchaseReceiptStockInvoiceAndLedgerWhenPostingFails() {
+        Fixture fixture = seedFixture();
+        Map<String,Object> created = workflows.createPurchase(new ErpWorkflowRequests.PurchaseOrder(
+                "purchase-tax-rollback", fixture.supplierId(), fixture.storeId(), fixture.currencyId(),
+                List.of(new ErpWorkflowRequests.PurchaseLine(fixture.productId(), 2L, 1_000L)),
+                "Purchase tax rollback"));
+        Long purchaseId = ((Number) created.get("purchase")).longValue();
+        ErpWorkflowRequests.DocumentPosting invalidPosting = new ErpWorkflowRequests.DocumentPosting(
+                "purchase-tax-rollback-ledger", 999_991L, 999_992L, null, LocalDate.now(),
+                "Expected purchase rollback", 999_993L, 999_994L, 999_995L);
+
+        assertThatThrownBy(() -> workflows.receivePurchase(purchaseId,
+                new ErpWorkflowRequests.ReceivePurchase("purchase-tax-receipt-rollback", invalidPosting),
+                fixture.storeId()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Account not found");
+
+        inNewTransaction(() -> {
+            entityManager.clear();
+            ProductStockLocation stock = entityManager.find(ProductStockLocation.class, fixture.stockId());
+            Purchase purchase = entityManager.find(Purchase.class, purchaseId);
+            assertThat(stock.getQuantity()).isEqualTo(10L);
+            assertThat(purchase.getStatus()).isEqualTo("ORDERED");
+            assertThat(purchase.getInvoice()).isNull();
+            assertThat(entityManager.createQuery(
+                    "select count(r) from PurchaseReceipt r where r.idempotencyKey=:key", Long.class)
+                    .setParameter("key", "purchase-tax-receipt-rollback").getSingleResult()).isZero();
+            assertThat(entityManager.createQuery(
+                    "select count(m) from StockMovement m where m.idempotencyKey like :key", Long.class)
+                    .setParameter("key", "purchase-tax-receipt-rollback:%").getSingleResult()).isZero();
+            return null;
+        });
+    }
+
     private Fixture seedFixture() {
         return inNewTransaction(() -> {
             Contact contact = new Contact();
             contact.setName("Integration buyer");
             entityManager.persist(contact);
+
+            Supplier supplier = new Supplier(); supplier.setContact(contact); supplier.setName("Integration supplier");
+            entityManager.persist(supplier);
 
             Customer customer = new Customer();
             customer.setContact(contact);
@@ -131,8 +171,14 @@ class SalesTaxDocumentWorkflowIntegrationTest {
             policy.setPriority(1);
             policy.setActive(true);
             entityManager.persist(policy);
+            TaxPolicy purchasePolicy = new TaxPolicy();
+            purchasePolicy.setName("Integration purchase VAT"); purchasePolicy.setTransactionType("PURCHASE");
+            purchasePolicy.setRate(new java.math.BigDecimal("10"));
+            purchasePolicy.setValidFrom(LocalDate.now().minusDays(1)); purchasePolicy.setValidUntil(LocalDate.now().plusDays(1));
+            purchasePolicy.setPriority(1); purchasePolicy.setActive(true);
+            entityManager.persist(purchasePolicy);
             entityManager.flush();
-            return new Fixture(customer.getId(), contact.getId(), currency.getId(), store.getId(),
+            return new Fixture(customer.getId(), supplier.getId(), contact.getId(), currency.getId(), store.getId(),
                     product.getId(), stock.getId(), policy.getId());
         });
     }
@@ -159,6 +205,6 @@ class SalesTaxDocumentWorkflowIntegrationTest {
         });
     }
 
-    private record Fixture(Long customerId, Long contactId, Long currencyId, Long storeId,
+    private record Fixture(Long customerId, Long supplierId, Long contactId, Long currencyId, Long storeId,
                            Long productId, Long stockId, Long policyId) {}
 }
