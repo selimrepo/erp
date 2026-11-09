@@ -50,3 +50,23 @@ Partial receipts are supported through `POST /procurement/purchases/{id}/receive
 ## Completion boundary
 
 The workflow API provides transactional primitives, but production readiness still requires approved tenant accounting/tax policies, a verified migration strategy, complete return/refund treatment, and end-to-end tests against the supported database. The React console must expose the same line-level and reconciliation operations; an API capability is not operationally complete until the UI and authorization paths are covered.
+
+
+## Generic tax policies
+
+The tax module provides reusable, date-effective `TaxPolicy` records. A policy can be global or company-scoped and can optionally constrain jurisdiction, transaction type and tax category. Null scope values act as wildcards. Resolution chooses the most specific matching policy, then the lowest numeric priority, then the most recent effective date. Policies support tax-inclusive and tax-exclusive prices; the calculation API accepts and returns integer minor-unit amounts to match the current invoice amount convention.
+
+A policy must have a non-negative rate no greater than 100%, a valid date interval and a non-negative priority. The service fails closed when no active policy matches. The Flyway migration creates the policy table and lookup indexes.
+
+This is a generic policy engine, not a preconfigured legal-tax catalogue. Tenants must configure rates, exemptions and effective dates for their jurisdictions. Reverse charge, withholding, compound taxes, multiple tax components and statutory invoice reporting are not implied by this basic rate model. The calculation service must be invoked by each invoice-creation workflow before it can be considered end-to-end tax automation.
+
+## Journal posting invariants
+
+At the persistence boundary, a journal can transition from DRAFT to POSTED only when:
+- its fiscal year and period exist, are open, and the entry date belongs to both;
+- the period belongs to the selected fiscal year;
+- it has at least two lines, each with exactly one positive debit or credit;
+- every line uses an unblocked account with posting enabled; and
+- total debit equals total credit and is greater than zero.
+
+Posted journal headers and lines remain immutable; corrections require reversal entries. Workflow services must still enforce authorization, idempotency, source-document linkage and transaction boundaries around posting.
