@@ -19,6 +19,10 @@ public class Invoice extends EntityBase {
     private Long amount;
     @Column(nullable = false) private Long netAmount = 0L;
     @Column(nullable = false) private Long taxAmount = 0L;
+    @Column(nullable=false) private Long withholdingAmount = 0L;
+    @Column(nullable=false) private Long reverseChargeTaxAmount = 0L;
+    @OneToMany(mappedBy="invoice",cascade=CascadeType.ALL,orphanRemoval=true) @OrderBy("id ASC")
+    private Set<InvoiceTaxComponent> taxComponents = new java.util.LinkedHashSet<>();
     private Long paidAmount = 0L;
     @Column(nullable = false) private Long creditedAmount = 0L;
     @ManyToOne(fetch = FetchType.LAZY) private Invoice originalInvoice;
