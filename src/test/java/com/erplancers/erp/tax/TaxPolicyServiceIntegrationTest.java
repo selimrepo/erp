@@ -6,6 +6,7 @@ import com.erplancers.erp.tax.repository.TaxPolicyRepository;
 import com.erplancers.erp.tax.service.TaxPolicyService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
 import jakarta.persistence.EntityManager;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
@@ -97,8 +98,9 @@ class TaxPolicyServiceIntegrationTest {
         TaxPolicy invalid = policy("Invalid rate", "TR", "SALE", "STANDARD", "100.01", 10, false);
 
         assertThatThrownBy(() -> policies.saveAndFlush(invalid))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Tax policy rate must be between 0 and 100 percent");
+                .isInstanceOf(InvalidDataAccessApiUsageException.class)
+                .hasRootCauseInstanceOf(IllegalStateException.class)
+                .hasRootCauseMessage("Tax policy rate must be between 0 and 100 percent");
     }
 
     @Test
