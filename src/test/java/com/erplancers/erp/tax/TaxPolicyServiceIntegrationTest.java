@@ -1,6 +1,10 @@
 package com.erplancers.erp.tax;
 
 import com.erplancers.erp.crm.contact.domain.Contact;
+import com.erplancers.erp.accounting.domain.Account;
+import com.erplancers.erp.tax.domain.TaxComponentType;
+import com.erplancers.erp.tax.domain.TaxPolicyComponent;
+import com.erplancers.erp.tax.domain.TaxTreatment;
 import com.erplancers.erp.tax.domain.TaxPolicy;
 import com.erplancers.erp.tax.repository.TaxPolicyRepository;
 import com.erplancers.erp.tax.service.TaxPolicyService;
@@ -119,6 +123,60 @@ class TaxPolicyServiceIntegrationTest {
                 .isInstanceOf(InvalidDataAccessApiUsageException.class)
                 .hasRootCauseInstanceOf(IllegalStateException.class)
                 .hasRootCauseMessage("Tax policy rate must be between 0 and 100 percent");
+    }
+
+    @Test
+    void validatesExemptionCodeEvidenceTypeAndReferenceBeforeZeroTaxTreatment() {
+        TaxPolicy exempt = policy("Export exemption", "TR", "SALE", "EXPORT", "0", 1, false);
+        exempt.setTreatment(TaxTreatment.EXEMPT);
+        exempt.setExemptionCode("EXPORT-11");
+        exempt.setRequiredEvidenceType("EXPORT_CERTIFICATE");
+        policies.saveAndFlush(exempt);
+
+        assertThatThrownBy(() -> service.calculateDetailed(null, "TR", "SALE", "EXPORT",
+                LocalDate.of(2026, 11, 9), 10_000L, "EXPORT-11", "OTHER_DOCUMENT", "DOC-1"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("evidence type");
+        assertThatThrownBy(() -> service.calculateDetailed(null, "TR", "SALE", "EXPORT",
+                LocalDate.of(2026, 11, 9), 10_000L, "EXPORT-11", "EXPORT_CERTIFICATE", null))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("evidence reference");
+
+        var result = service.calculateDetailed(null, "TR", "SALE", "EXPORT",
+                LocalDate.of(2026, 11, 9), 10_000L, "EXPORT-11", "EXPORT_CERTIFICATE", "GUMRUK-2026-1");
+        assertThat(result.taxAmount()).isZero();
+        assertThat(result.grossAmount()).isEqualTo(10_000L);
+    }
+
+    @Test
+    void calculatesCompoundTaxWithholdingAndReverseChargeComponents() {
+        Account inputTax = new Account(); inputTax.setName("Input VAT"); inputTax.setCode("191"); inputTax.setPostingAllowed(true);
+        Account outputTax = new Account(); outputTax.setName("Output VAT"); outputTax.setCode("391"); outputTax.setPostingAllowed(true);
+        entityManager.persist(inputTax); entityManager.persist(outputTax);
+
+        TaxPolicy policy = policy("Multi-component tax", "TR", "PURCHASE", "STANDARD", "0", 1, false);
+        policy.getComponents().add(component(policy, "VAT", TaxComponentType.STANDARD, "10", 1, null, null));
+        policy.getComponents().add(component(policy, "Compound levy", TaxComponentType.COMPOUND, "5", 2, null, null));
+        policy.getComponents().add(component(policy, "Withholding", TaxComponentType.WITHHOLDING, "2", 3, outputTax, null));
+        policy.getComponents().add(component(policy, "Reverse charge", TaxComponentType.REVERSE_CHARGE, "10", 4, outputTax, inputTax));
+        policies.saveAndFlush(policy);
+
+        var result = service.calculateDetailed(null, "TR", "PURCHASE", "STANDARD",
+                LocalDate.of(2026, 11, 9), 10_000L, null, null, null);
+
+        assertThat(result.netAmount()).isEqualTo(10_000L);
+        assertThat(result.taxAmount()).isEqualTo(1_550L);
+        assertThat(result.withholdingAmount()).isEqualTo(200L);
+        assertThat(result.reverseChargeTaxAmount()).isEqualTo(1_000L);
+        assertThat(result.grossAmount()).isEqualTo(11_350L);
+        assertThat(result.components()).hasSize(4);
+    }
+
+    private TaxPolicyComponent component(TaxPolicy policy, String name, TaxComponentType type,
+                                         String rate, int sequence, Account output, Account input) {
+        TaxPolicyComponent component = new TaxPolicyComponent();
+        component.setTaxPolicy(policy); component.setName(name); component.setComponentType(type);
+        component.setRate(new BigDecimal(rate)); component.setSequence(sequence);
+        component.setOutputTaxAccount(output); component.setInputTaxAccount(input);
+        return component;
     }
 
     @Test
