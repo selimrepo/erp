@@ -28,8 +28,16 @@ class GenericTaxPolicyPostgresMigrationTest {
                 postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              Statement statement = connection.createStatement()) {
             statement.execute("CREATE TABLE contact (id BIGSERIAL PRIMARY KEY)");
+            statement.execute("CREATE TABLE account (id BIGSERIAL PRIMARY KEY)");
+            statement.execute("CREATE TABLE invoice (id BIGSERIAL PRIMARY KEY)");
+            statement.execute("CREATE TABLE erp_order_line (id BIGSERIAL PRIMARY KEY)");
+            statement.execute("CREATE TABLE purchase_detail (id BIGSERIAL PRIMARY KEY)");
             ScriptUtils.executeSqlScript(connection,
                     new ClassPathResource("db/migration/V2026110901__create_generic_tax_policy.sql"));
+            ScriptUtils.executeSqlScript(connection,
+                    new ClassPathResource("db/migration/V2026110902__link_tax_policy_to_documents.sql"));
+            ScriptUtils.executeSqlScript(connection,
+                    new ClassPathResource("db/migration/V2026110903__advanced_tax_treatments.sql"));
 
             try (ResultSet columns = statement.executeQuery("""
                     SELECT character_maximum_length
@@ -49,6 +57,22 @@ class GenericTaxPolicyPostgresMigrationTest {
             insertPolicy(connection, companyId, "US-CA", 20);
             assertThrows(SQLException.class, () -> insertPolicy(connection, companyId + 1000, "US-NY", 8));
             assertThrows(SQLException.class, () -> insertPolicy(connection, companyId, "US-CA", 125));
+            try (ResultSet columns = statement.executeQuery("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = 'invoice' AND column_name IN ('withholding_amount','reverse_charge_tax_amount','tax_evidence_reference')
+                    """)) {
+                java.util.Set<String> found = new java.util.HashSet<>();
+                while (columns.next()) found.add(columns.getString(1));
+                assertThat(found).contains("withholding_amount", "reverse_charge_tax_amount", "tax_evidence_reference");
+            }
+            try (ResultSet tables = statement.executeQuery("""
+                    SELECT table_name FROM information_schema.tables
+                    WHERE table_schema='public' AND table_name IN ('tax_policy_component','invoice_tax_component','purchase_detail_tax_component')
+                    """)) {
+                java.util.Set<String> found = new java.util.HashSet<>();
+                while (tables.next()) found.add(tables.getString(1));
+                assertThat(found).contains("tax_policy_component", "invoice_tax_component", "purchase_detail_tax_component");
+            }
         }
     }
 
