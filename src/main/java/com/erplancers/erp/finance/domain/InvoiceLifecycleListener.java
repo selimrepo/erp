@@ -117,7 +117,10 @@ public class InvoiceLifecycleListener {
     private String amountFingerprint(Invoice invoice) {
         return String.join("|", String.valueOf(invoice.getAmount()), String.valueOf(invoice.getNetAmount()),
                 String.valueOf(invoice.getTaxAmount()), String.valueOf(invoice.getWithholdingAmount()),
-                String.valueOf(invoice.getReverseChargeTaxAmount()), String.valueOf(invoice.getCurrency() == null ? null : invoice.getCurrency().getId()),
+                String.valueOf(invoice.getReverseChargeTaxAmount()), String.valueOf(invoice.getCreditNoteReason()),
+                String.valueOf(invoice.getCreditNoteReasonCode()), String.valueOf(invoice.getTaxEvidenceType()),
+                String.valueOf(invoice.getTaxEvidenceReference()),
+                String.valueOf(invoice.getCurrency() == null ? null : invoice.getCurrency().getId()),
                 String.valueOf(invoice.getInvoiceType()), String.valueOf(invoice.getOriginalInvoice() == null ? null : invoice.getOriginalInvoice().getId()));
     }
     private String settlementFingerprint(Invoice invoice) {
