@@ -26,7 +26,6 @@ repositories {
 }
 
 // Keep Spring Boot's Logback logging backend as the sole SLF4J provider.
-// Spark's log4j-slf4j2-impl conflicts with Boot's log4j-to-slf4j bridge.
 
 dependencies {
 	implementation('com.github.javafaker:javafaker:1.0.2') {
