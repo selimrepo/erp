@@ -91,6 +91,7 @@ public class ErpWorkflowService {
             invoice.setBillingContacts(Set.of(contact)); invoice.setShippingContacts(Set.of(contact));
             invoice.setCreationValidated(true);
             em.persist(invoice); order.setInvoice(invoice);
+            if (request.accountingPosting() != null) { em.flush(); postInvoiceToLedger(invoice.getId(), request.accountingPosting()); }
         }
         em.flush();
         return result("order", order.getId(), "invoiceId", order.getInvoice()==null?null:order.getInvoice().getId(),
@@ -284,16 +285,17 @@ public class ErpWorkflowService {
 
     @Transactional
     public Map<String,Object> receivePurchase(Long purchaseId, ErpWorkflowRequests.ReceivePurchase request, Long storeId) {
-        return receivePurchaseLines(purchaseId, request.idempotencyKey(), null, storeId);
+        return receivePurchaseLines(purchaseId, request.idempotencyKey(), null, storeId, request.accountingPosting());
     }
 
     @Transactional
     public Map<String,Object> receivePurchasePartial(Long purchaseId, ErpWorkflowRequests.PartialReceivePurchase request, Long storeId) {
-        return receivePurchaseLines(purchaseId, request.idempotencyKey(), request.lines(), storeId);
+        return receivePurchaseLines(purchaseId, request.idempotencyKey(), request.lines(), storeId, request.accountingPosting());
     }
 
     private Map<String,Object> receivePurchaseLines(Long purchaseId, String idempotencyKey,
-            List<ErpWorkflowRequests.PurchaseReceiptLineInput> requestedLines, Long storeId) {
+            List<ErpWorkflowRequests.PurchaseReceiptLineInput> requestedLines, Long storeId,
+            ErpWorkflowRequests.DocumentPosting accountingPosting) {
         String receiptPayload = purchaseId + "|" + (requestedLines == null ? "ALL_OUTSTANDING" : requestedLines.toString()) + "|" + storeId;
         String receiptHash = hash(receiptPayload);
         Purchase purchase = em.find(Purchase.class, purchaseId, LockModeType.PESSIMISTIC_WRITE);
@@ -328,6 +330,8 @@ public class ErpWorkflowService {
         }
         if (quantities.isEmpty()) throw new IllegalStateException("There are no outstanding quantities to receive");
 
+        if (!fullyReceived && accountingPosting != null)
+            throw new IllegalStateException("Invoice ledger posting is only available when the purchase is fully received");
         PurchaseReceipt receipt = new PurchaseReceipt();
         receipt.setPurchase(purchase); receipt.setIdempotencyKey(idempotencyKey); receipt.setPayloadHash(receiptHash); receipt.setReceivedAt(LocalDateTime.now());
         receipt.setReceiptValidated(true);
@@ -373,6 +377,7 @@ public class ErpWorkflowService {
             invoice.setCreationValidated(true);
             em.persist(invoice); purchase.setInvoice(invoice);
             purchase.setApprovedDate(LocalDateTime.now());
+            if (accountingPosting != null) { em.flush(); postInvoiceToLedger(invoice.getId(), accountingPosting); }
         }
         em.flush();
         return result("purchase", purchaseId, "receipt", receipt.getId(), "receivedQuantity", receivedTotal,
