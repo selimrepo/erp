@@ -28,7 +28,7 @@ class TaxPolicyServiceIntegrationTest {
         policies.saveAndFlush(specific);
 
         var result = service.calculate(null, "tr", "sale", "standard",
-                LocalDate.of(2026, 11, 9), 10_000L, 2);
+                LocalDate.of(2026, 11, 9), 10_000L);
 
         assertThat(result.policyId()).isEqualTo(specific.getId());
         assertThat(result.netAmount()).isEqualTo(10_000L);
@@ -42,7 +42,7 @@ class TaxPolicyServiceIntegrationTest {
                 1, true));
 
         var result = service.calculate(null, "DE", "SALE", "REDUCED",
-                LocalDate.of(2026, 11, 9), 11_900L, 2);
+                LocalDate.of(2026, 11, 9), 11_900L);
 
         assertThat(result.netAmount()).isEqualTo(10_000L);
         assertThat(result.taxAmount()).isEqualTo(1_900L);
@@ -52,7 +52,7 @@ class TaxPolicyServiceIntegrationTest {
     @Test
     void failsClosedWhenNoPolicyMatches() {
         assertThatThrownBy(() -> service.calculate(null, "US", "SALE", "STANDARD",
-                LocalDate.of(2026, 11, 9), 1_000L, 2))
+                LocalDate.of(2026, 11, 9), 1_000L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("No active tax policy");
     }
