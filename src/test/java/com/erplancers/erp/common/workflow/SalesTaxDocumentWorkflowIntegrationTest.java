@@ -4,6 +4,11 @@ import com.erplancers.erp.crm.contact.domain.Contact;
 import com.erplancers.erp.crm.customer.domain.Customer;
 import com.erplancers.erp.finance.domain.Currency;
 import com.erplancers.erp.finance.domain.Invoice;
+import com.erplancers.erp.finance.domain.InvoiceTaxComponent;
+import com.erplancers.erp.finance.domain.InvoiceType;
+import com.erplancers.erp.finance.domain.InvoiceStatus;
+import com.erplancers.erp.finance.domain.CreditNoteReasonCode;
+import com.erplancers.erp.tax.domain.TaxComponentType;
 import com.erplancers.erp.procurement.domain.Supplier;
 import com.erplancers.erp.procurement.domain.Purchase;
 import com.erplancers.erp.inventory.product.domain.Product;
@@ -94,6 +99,56 @@ class SalesTaxDocumentWorkflowIntegrationTest {
                     .setParameter("key", "sale-tax-rollback:%").getSingleResult()).isZero();
             return null;
         });
+    }
+
+    @Test
+    void creditNoteReversesEachTaxComponentProportionallyAndRequiresTaxCorrectionEvidence() {
+        Long originalId = inNewTransaction(() -> {
+            Invoice original = new Invoice();
+            original.setInvoiceName("INV-CN-ORIGINAL");
+            original.setInvoiceDescription("Tax component credit note source");
+            original.setAmount(1_100L); original.setNetAmount(1_000L); original.setTaxAmount(200L);
+            original.setWithholdingAmount(100L); original.setReverseChargeTaxAmount(500L);
+            original.setPaidAmount(0L); original.setCreditedAmount(0L);
+            original.setInvoiceType(InvoiceType.SALE); original.setInvoiceStatus(InvoiceStatus.CONFIRMED);
+            original.setWorkflowKey("sales:credit-note-source"); original.setCreationValidated(true);
+            InvoiceTaxComponent vat = invoiceComponent(original, "VAT", TaxComponentType.STANDARD, "20", 200L);
+            InvoiceTaxComponent withholding = invoiceComponent(original, "Withholding", TaxComponentType.WITHHOLDING, "10", 100L);
+            InvoiceTaxComponent reverse = invoiceComponent(original, "Reverse charge", TaxComponentType.REVERSE_CHARGE, "50", 500L);
+            original.getTaxComponents().addAll(List.of(vat, withholding, reverse));
+            entityManager.persist(original); entityManager.flush();
+            return original.getId();
+        });
+
+        assertThatThrownBy(() -> workflows.createCreditNote(originalId,
+                new ErpWorkflowRequests.CreditNote("cn-evidence-missing", 550L, "Correct tax", "TAX_CORRECTION",
+                        "TAX_CORRECTION_MEMO", null, null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("evidence");
+
+        Map<String,Object> result = workflows.createCreditNote(originalId,
+                new ErpWorkflowRequests.CreditNote("cn-tax-component", 550L, "Correct tax", "TAX_CORRECTION",
+                        "TAX_CORRECTION_MEMO", "DOC-2026-77", null));
+        inNewTransaction(() -> {
+            entityManager.clear();
+            Invoice note = entityManager.find(Invoice.class, ((Number) result.get("creditNote")).longValue());
+            assertThat(note.getAmount()).isEqualTo(550L);
+            assertThat(note.getNetAmount()).isEqualTo(500L);
+            assertThat(note.getTaxAmount()).isEqualTo(100L);
+            assertThat(note.getWithholdingAmount()).isEqualTo(50L);
+            assertThat(note.getReverseChargeTaxAmount()).isEqualTo(250L);
+            assertThat(note.getCreditNoteReasonCode()).isEqualTo(CreditNoteReasonCode.TAX_CORRECTION);
+            assertThat(note.getTaxEvidenceReference()).isEqualTo("DOC-2026-77");
+            assertThat(note.getTaxComponents()).hasSize(3);
+            return null;
+        });
+    }
+
+    private InvoiceTaxComponent invoiceComponent(Invoice invoice, String name, TaxComponentType type,
+                                                  String rate, long amount) {
+        InvoiceTaxComponent component = new InvoiceTaxComponent();
+        component.setInvoice(invoice); component.setName(name); component.setComponentType(type);
+        component.setRate(new java.math.BigDecimal(rate)); component.setAmount(amount);
+        return component;
     }
 
     @Test
