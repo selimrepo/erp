@@ -737,40 +737,112 @@ public class ErpWorkflowService {
                 InvoiceStatus.PARTIALLY_SETTLED, InvoiceStatus.PAID, InvoiceStatus.CREDITED, InvoiceStatus.SETTLED)
                 .contains(invoice.getInvoiceStatus()))
             throw new IllegalStateException("Only confirmed or settled invoices without a ledger entry can be posted");
-        long gross = invoice.getAmount() == null ? 0L : invoice.getAmount();
+        long payable = invoice.getAmount() == null ? 0L : invoice.getAmount();
         long taxAmount = invoice.getTaxAmount() == null ? 0L : invoice.getTaxAmount();
-        long net = invoice.getNetAmount() == null ? gross - taxAmount : invoice.getNetAmount();
-        if (gross <= 0 || net < 0 || taxAmount < 0 || Math.addExact(net, taxAmount) != gross)
-            throw new IllegalStateException("Invoice net, tax and gross totals are inconsistent");
+        long withholdingAmount = invoice.getWithholdingAmount() == null ? 0L : invoice.getWithholdingAmount();
+        long reverseChargeAmount = invoice.getReverseChargeTaxAmount() == null ? 0L : invoice.getReverseChargeTaxAmount();
+        long net = invoice.getNetAmount() == null ? Math.addExact(payable, withholdingAmount) - taxAmount : invoice.getNetAmount();
+        long taxableGross = Math.addExact(net, taxAmount);
+        if (payable <= 0 || net < 0 || taxAmount < 0 || withholdingAmount < 0
+                || Math.subtractExact(taxableGross, withholdingAmount) != payable)
+            throw new IllegalStateException("Invoice net, tax, withholding and payable totals are inconsistent");
         Account primary = required(Account.class, request.debitAccountId());
         Account counter = required(Account.class, request.creditAccountId());
-        Account tax = request.taxAccountId() == null ? null : required(Account.class, request.taxAccountId());
+        Account fallbackTax = request.taxAccountId() == null ? null : required(Account.class, request.taxAccountId());
+        Account fallbackWithholding = request.withholdingAccountId() == null ? null : required(Account.class, request.withholdingAccountId());
+        Account fallbackReverseInput = request.reverseChargeInputAccountId() == null ? null : required(Account.class, request.reverseChargeInputAccountId());
+        Account fallbackReverseOutput = request.reverseChargeOutputAccountId() == null ? null : required(Account.class, request.reverseChargeOutputAccountId());
         boolean creditNote = invoice.getInvoiceType() == InvoiceType.CREDIT_NOTE;
         InvoiceType sourceType = creditNote && invoice.getOriginalInvoice() != null
                 ? invoice.getOriginalInvoice().getInvoiceType() : invoice.getInvoiceType();
         if (creditNote && invoice.getOriginalInvoice() == null)
             throw new IllegalStateException("Credit note has no original invoice");
-        if (taxAmount > 0 && tax == null)
-            throw new IllegalArgumentException("Tax account is required for taxable invoice posting");
+        List<InvoiceTaxComponent> components = invoice.getTaxComponents() == null ? List.of()
+                : invoice.getTaxComponents().stream().toList();
         List<ErpWorkflowRequests.JournalLine> lines = new ArrayList<>();
-        if (sourceType == InvoiceType.SALE && !creditNote) {
-            lines.add(new ErpWorkflowRequests.JournalLine(primary.getId(), BigDecimal.valueOf(gross), BigDecimal.ZERO, "Accounts receivable"));
+        boolean sale = sourceType == InvoiceType.SALE;
+        if (sale && !creditNote) {
+            lines.add(new ErpWorkflowRequests.JournalLine(primary.getId(), BigDecimal.valueOf(payable), BigDecimal.ZERO, "Accounts receivable"));
             lines.add(new ErpWorkflowRequests.JournalLine(counter.getId(), BigDecimal.ZERO, BigDecimal.valueOf(net), "Sales revenue"));
-            if (taxAmount > 0) lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.ZERO, BigDecimal.valueOf(taxAmount), "Output tax"));
         } else if (sourceType == InvoiceType.PURCHASE && !creditNote) {
             lines.add(new ErpWorkflowRequests.JournalLine(primary.getId(), BigDecimal.valueOf(net), BigDecimal.ZERO, "Purchase expense or inventory"));
-            if (taxAmount > 0) lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.valueOf(taxAmount), BigDecimal.ZERO, "Input tax"));
-            lines.add(new ErpWorkflowRequests.JournalLine(counter.getId(), BigDecimal.ZERO, BigDecimal.valueOf(gross), "Accounts payable"));
-        } else if (sourceType == InvoiceType.SALE) {
+            lines.add(new ErpWorkflowRequests.JournalLine(counter.getId(), BigDecimal.ZERO, BigDecimal.valueOf(payable), "Accounts payable"));
+        } else if (sale) {
             lines.add(new ErpWorkflowRequests.JournalLine(counter.getId(), BigDecimal.valueOf(net), BigDecimal.ZERO, "Sales returns"));
-            if (taxAmount > 0) lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.valueOf(taxAmount), BigDecimal.ZERO, "Output tax reversal"));
-            lines.add(new ErpWorkflowRequests.JournalLine(primary.getId(), BigDecimal.ZERO, BigDecimal.valueOf(gross), "Accounts receivable credit"));
+            lines.add(new ErpWorkflowRequests.JournalLine(primary.getId(), BigDecimal.ZERO, BigDecimal.valueOf(payable), "Accounts receivable credit"));
         } else if (sourceType == InvoiceType.PURCHASE) {
-            lines.add(new ErpWorkflowRequests.JournalLine(counter.getId(), BigDecimal.valueOf(gross), BigDecimal.ZERO, "Accounts payable credit"));
+            lines.add(new ErpWorkflowRequests.JournalLine(counter.getId(), BigDecimal.valueOf(payable), BigDecimal.ZERO, "Accounts payable credit"));
             lines.add(new ErpWorkflowRequests.JournalLine(primary.getId(), BigDecimal.ZERO, BigDecimal.valueOf(net), "Purchase return"));
-            if (taxAmount > 0) lines.add(new ErpWorkflowRequests.JournalLine(tax.getId(), BigDecimal.ZERO, BigDecimal.valueOf(taxAmount), "Input tax reversal"));
         } else {
             throw new IllegalStateException("Unsupported invoice type for ledger posting");
+        }
+
+        long componentOutputTax = 0L, componentWithholding = 0L, componentReverse = 0L;
+        for (InvoiceTaxComponent component : components) {
+            long amount = component.getAmount() == null ? 0L : component.getAmount();
+            if (amount < 0) throw new IllegalStateException("Tax component amount cannot be negative");
+            TaxComponentType type = component.getComponentType();
+            if (type == TaxComponentType.STANDARD || type == TaxComponentType.COMPOUND) {
+                componentOutputTax = Math.addExact(componentOutputTax, amount);
+                Account taxAccount = component.getOutputTaxAccount() != null ? component.getOutputTaxAccount() : fallbackTax;
+                if (amount > 0 && taxAccount == null)
+                    throw new IllegalArgumentException("Output/input tax account is required for tax component " + component.getName());
+                if (amount > 0) {
+                    if (sale == creditNote)
+                        lines.add(new ErpWorkflowRequests.JournalLine(taxAccount.getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, component.getName() + " tax reversal"));
+                    else
+                        lines.add(new ErpWorkflowRequests.JournalLine(taxAccount.getId(), sale ? BigDecimal.ZERO : BigDecimal.valueOf(amount),
+                                sale ? BigDecimal.valueOf(amount) : BigDecimal.ZERO, component.getName() + (sale ? " output tax" : " input tax")));
+                }
+            } else if (type == TaxComponentType.WITHHOLDING) {
+                componentWithholding = Math.addExact(componentWithholding, amount);
+                Account withholdingAccount = component.getOutputTaxAccount() != null ? component.getOutputTaxAccount() : fallbackWithholding;
+                if (amount > 0 && withholdingAccount == null)
+                    throw new IllegalArgumentException("Withholding account is required for component " + component.getName());
+                if (amount > 0) {
+                    boolean debit = sale == creditNote;
+                    lines.add(new ErpWorkflowRequests.JournalLine(withholdingAccount.getId(),
+                            debit ? BigDecimal.valueOf(amount) : BigDecimal.ZERO,
+                            debit ? BigDecimal.ZERO : BigDecimal.valueOf(amount), component.getName() + " withholding"));
+                }
+            } else if (type == TaxComponentType.REVERSE_CHARGE) {
+                componentReverse = Math.addExact(componentReverse, amount);
+                Account inputAccount = component.getInputTaxAccount() != null ? component.getInputTaxAccount() : fallbackReverseInput;
+                Account outputAccount = component.getOutputTaxAccount() != null ? component.getOutputTaxAccount() : fallbackReverseOutput;
+                if (amount > 0 && (inputAccount == null || outputAccount == null))
+                    throw new IllegalArgumentException("Reverse-charge input and output tax accounts are required");
+                if (amount > 0) {
+                    lines.add(new ErpWorkflowRequests.JournalLine(inputAccount.getId(), BigDecimal.valueOf(amount), BigDecimal.ZERO, "Reverse-charge input tax"));
+                    lines.add(new ErpWorkflowRequests.JournalLine(outputAccount.getId(), BigDecimal.ZERO, BigDecimal.valueOf(amount), "Reverse-charge output tax"));
+                }
+            }
+        }
+        if (components.isEmpty()) {
+            if (taxAmount > 0 && fallbackTax == null)
+                throw new IllegalArgumentException("Tax account is required for taxable invoice posting");
+            if (taxAmount > 0) {
+                if (sale == creditNote)
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackTax.getId(), BigDecimal.valueOf(taxAmount), BigDecimal.ZERO, "Output tax reversal"));
+                else
+                    lines.add(new ErpWorkflowRequests.JournalLine(fallbackTax.getId(), sale ? BigDecimal.ZERO : BigDecimal.valueOf(taxAmount),
+                            sale ? BigDecimal.valueOf(taxAmount) : BigDecimal.ZERO, sale ? "Output tax" : "Input tax"));
+            }
+            if (withholdingAmount > 0) {
+                if (fallbackWithholding == null) throw new IllegalArgumentException("Withholding account is required");
+                boolean debit = sale == creditNote;
+                lines.add(new ErpWorkflowRequests.JournalLine(fallbackWithholding.getId(),
+                        debit ? BigDecimal.valueOf(withholdingAmount) : BigDecimal.ZERO,
+                        debit ? BigDecimal.ZERO : BigDecimal.valueOf(withholdingAmount), "Withholding"));
+            }
+            if (reverseChargeAmount > 0) {
+                if (fallbackReverseInput == null || fallbackReverseOutput == null)
+                    throw new IllegalArgumentException("Reverse-charge input and output tax accounts are required");
+                lines.add(new ErpWorkflowRequests.JournalLine(fallbackReverseInput.getId(), BigDecimal.valueOf(reverseChargeAmount), BigDecimal.ZERO, "Reverse-charge input tax"));
+                lines.add(new ErpWorkflowRequests.JournalLine(fallbackReverseOutput.getId(), BigDecimal.ZERO, BigDecimal.valueOf(reverseChargeAmount), "Reverse-charge output tax"));
+            }
+        } else if (componentOutputTax != taxAmount || componentWithholding != withholdingAmount
+                || componentReverse != reverseChargeAmount) {
+            throw new IllegalStateException("Persisted tax component totals do not match invoice tax totals");
         }
         String entryId = (creditNote ? "CN-" : "INV-") + invoiceId;
         ErpWorkflowRequests.JournalPost journal = new ErpWorkflowRequests.JournalPost(request.idempotencyKey(), request.fiscalYearId(), request.fiscalPeriodId(),
