@@ -203,9 +203,17 @@ public class TaxPolicyService {
         }
         BigDecimal factor = BigDecimal.ONE;
         if (selected.isTaxInclusive() && selected.getTreatment() != TaxTreatment.EXEMPT) {
+            BigDecimal compoundBaseFactor = BigDecimal.ONE;
             for (TaxPolicyComponent c : configured) {
-                if (c.getComponentType() == TaxComponentType.STANDARD || c.getComponentType() == TaxComponentType.COMPOUND)
-                    factor = factor.multiply(BigDecimal.ONE.add(c.getRate().movePointLeft(2)));
+                BigDecimal componentRate = c.getRate().movePointLeft(2);
+                if (c.getComponentType() == TaxComponentType.STANDARD) {
+                    factor = factor.add(componentRate);
+                    compoundBaseFactor = compoundBaseFactor.add(componentRate);
+                } else if (c.getComponentType() == TaxComponentType.COMPOUND) {
+                    BigDecimal compoundFactor = compoundBaseFactor.multiply(componentRate);
+                    factor = factor.add(compoundFactor);
+                    compoundBaseFactor = compoundBaseFactor.add(compoundFactor);
+                }
             }
         }
         BigDecimal entered = BigDecimal.valueOf(enteredAmount);
