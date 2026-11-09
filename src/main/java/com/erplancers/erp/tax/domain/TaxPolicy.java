@@ -9,6 +9,8 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Tenant-configurable tax rule. Null scope fields are deliberate wildcards.
@@ -55,4 +57,18 @@ public class TaxPolicy extends EntityBase {
 
     @Column(nullable = false)
     private boolean active = true;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable=false, length=16)
+    private TaxTreatment treatment = TaxTreatment.STANDARD;
+
+    @Column(length=80)
+    private String exemptionCode;
+
+    @Column(length=120)
+    private String requiredEvidenceType;
+
+    @OneToMany(mappedBy="taxPolicy", cascade=CascadeType.ALL, orphanRemoval=true)
+    @OrderBy("sequence ASC")
+    private List<TaxPolicyComponent> components = new ArrayList<>();
 }
