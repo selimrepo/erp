@@ -56,7 +56,7 @@ public class TaxPolicyController {
     public TaxPolicyService.TaxCalculation calculate(Authentication authentication,
                                                      @Valid @RequestBody TaxCalculationRequest request) {
         require(authentication, "READ");
-        return taxPolicies.calculate(request.companyId(), request.jurisdictionCode(), request.transactionType(),
+        return taxPolicies.calculateForCompanyId(request.companyId(), request.jurisdictionCode(), request.transactionType(),
                 request.taxCategory(), request.date(), request.amount());
     }
 
