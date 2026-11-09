@@ -8,6 +8,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
@@ -51,6 +52,14 @@ public class TaxPolicyController {
         return taxPolicies.updatePolicy(id, request.toCommand());
     }
 
+    @PostMapping("/calculate")
+    public TaxPolicyService.TaxCalculation calculate(Authentication authentication,
+                                                     @Valid @RequestBody TaxCalculationRequest request) {
+        require(authentication, "READ");
+        return taxPolicies.calculate(request.companyId(), request.jurisdictionCode(), request.transactionType(),
+                request.taxCategory(), request.date(), request.amount());
+    }
+
     @PostMapping("/{id}/deactivate")
     public TaxPolicyService.PolicyView deactivate(Authentication authentication, @PathVariable Long id) {
         require(authentication, "WRITE");
@@ -61,6 +70,13 @@ public class TaxPolicyController {
         if (!authorization.isAllowed(authentication, "tax-policy", action))
             throw new AccessDeniedException(action + " access denied for tax-policy");
     }
+
+    public record TaxCalculationRequest(Long companyId,
+                                        @Size(max = 32) String jurisdictionCode,
+                                        @NotBlank @Size(max = 40) String transactionType,
+                                        @Size(max = 60) String taxCategory,
+                                        @NotNull LocalDate date,
+                                        @NotNull @PositiveOrZero Long amount) {}
 
     public record TaxPolicyRequest(
             @NotBlank @Size(max = 120) String name,
