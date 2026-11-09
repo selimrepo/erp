@@ -79,6 +79,15 @@ class TaxPolicyServiceIntegrationTest {
     }
 
     @Test
+    void rejectsRatesAboveOneHundredPercent() {
+        TaxPolicy invalid = policy("Invalid rate", "TR", "SALE", "STANDARD", "100.01", 10, false);
+
+        assertThatThrownBy(() -> policies.saveAndFlush(invalid))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Tax policy rate must be between 0 and 100 percent");
+    }
+
+    @Test
     void failsClosedWhenNoPolicyMatches() {
         assertThatThrownBy(() -> service.calculate(null, "US", "SALE", "STANDARD",
                 LocalDate.of(2026, 11, 9), 1_000L))
